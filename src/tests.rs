@@ -2,7 +2,10 @@ mod context;
 
 use crate::FluxDAO;
 use crate::types::{ Vote };
-use crate::
+use crate::proposal_status::{ ProposalStatus };
+use crate::proposal::{ ProposalInput, ProposalKind };
+use crate::policy_item::{ PolicyItem };
+use crate::types::{ NumOrRatio };
 
 #[cfg(test)]
 mod tests {
