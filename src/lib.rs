@@ -3,7 +3,7 @@ use std::collections::HashMap;
 // use near_lib::types::{Duration, WrappedBalance, WrappedDuration};
 use near_sdk::{ AccountId, Balance, env, near_bindgen, Promise};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{UnorderedSet, Vector};
+use near_sdk::collections::{UnorderedSet, Vector, UnorderedMap};
 use crate::utils::{ to_yocto };
 use crate::types::{ NumOrRatio, Vote };
 
@@ -35,6 +35,7 @@ pub struct FluxDAO {
     policy: Vec<PolicyItem>,
     council: UnorderedSet<AccountId>,
     proposals: Vector<Proposal>,
+    last_voted: UnorderedMap<AccountId, u64>,
 }
 
 impl Default for FluxDAO {
@@ -175,6 +176,8 @@ impl FluxDAO {
             Vote::No => proposal.vote_no += 1,
         }
         proposal.votes.insert(env::predecessor_account_id(), vote);
+        self.last_voted.insert(&env::predecessor_account_id(), &id);
+
         let post_status = proposal.vote_status(&self.policy, self.council.len());
         // If just changed from vote to Delay, adjust the expiration date to grace period.
         if !post_status.is_finalized() {
@@ -207,8 +210,7 @@ impl FluxDAO {
                         self.council.insert(&target);
                     }
                     ProposalKind::RemoveCouncil => {
-                        // TODO: Give stake back
-                        self.council.remove(&target);
+                        self.kick_user(&target);
                     }
                     ProposalKind::Payout { amount } => {
                         Promise::new(target).transfer(amount.0);
@@ -240,5 +242,19 @@ impl FluxDAO {
             }
         }
         self.proposals.replace(id, &proposal);
+    }
+
+    pub fn exit_dao(&mut self) {
+        self.kick_user(&env::predecessor_account_id());
+    }
+
+    fn kick_user(&mut self, account_id: &AccountId) {
+        let prosalid = self.last_voted.get(account_id);
+        if !prosalid.is_none() {
+            let proposal = self.proposals.get(prosalid.unwrap()).expect("ERR_PROPOSAL_NOT_FOUND");
+            assert!(env::block_timestamp() > proposal.vote_period_end, "ERR_VOTING_ACTIVE")
+        }
+        assert!(self.council.remove(account_id), "ERR_NOT_IN_COUNCIL");
+        Promise::new(account_id.to_string()).transfer(to_yocto(MINIMAL_NEAR_FOR_COUNCIL));
     }
 }
