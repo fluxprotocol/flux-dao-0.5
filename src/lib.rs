@@ -66,6 +66,7 @@ impl FluxDAO {
             }],
             council: UnorderedSet::new(b"c".to_vec()),
             proposals: Vector::new(b"p".to_vec()),
+            last_voted: UnorderedMap::new(b"e".to_vec()),
         };
         for account_id in council {
             dao.council.insert(&account_id);

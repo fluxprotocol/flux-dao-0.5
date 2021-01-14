@@ -1,2 +1,2 @@
-bash ./scripts/build.sh
+bash ./build.sh 
 cargo test -p flux-dao -- --nocapture
