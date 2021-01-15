@@ -12,7 +12,6 @@ mod proposal;
 mod policy_item;
 mod types;
 mod utils;
-mod tests;
 
 use policy_item::{ PolicyItem };
 use proposal::{ Proposal, ProposalInput, ProposalKind };
