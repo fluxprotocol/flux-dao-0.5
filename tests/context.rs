@@ -132,3 +132,8 @@ pub fn testing_env_with_promise_results(context: VMContext, promise_result: Prom
 pub fn accounts(id: usize) -> AccountId {
     ["alice", "bob", "charlie", "danny", "eugene", "fargo"][id].to_string()
 }
+
+#[test]
+fn test_init() {
+    init();
+}
