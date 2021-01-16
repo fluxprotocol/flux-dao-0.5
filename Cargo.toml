@@ -1,12 +1,17 @@
 [package]
 name = "flux-dao"
-version = "0.1.0"
-authors = ["Flux Protocol"]
+version = "0.3.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
-publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "2.0.1"
+
+[dev-dependencies]
+near-sdk-sim = { git = "https://github.com/near/near-sdk-rs.git", tag="2.2.0" }
 
 [profile.release]
 codegen-units = 1
@@ -16,7 +21,3 @@ lto = true
 debug = false
 panic = "abort"
 overflow-checks = true
-
-[dependencies]
-near-sdk = "2.0.0"
-
