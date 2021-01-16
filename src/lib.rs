@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 // use near_lib::types::{Duration, WrappedBalance, WrappedDuration};
-use near_sdk::{ AccountId, Balance, env, near_bindgen, Promise};
+use near_sdk::{ AccountId, Balance, Gas, env, near_bindgen, Promise};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{UnorderedSet, Vector, UnorderedMap};
+use near_sdk::json_types::{U64, U128};
 use crate::utils::{ to_yocto };
 use crate::types::{ NumOrRatio, Vote };
 
@@ -70,12 +71,14 @@ impl FluxDAO {
         for account_id in council {
             dao.council.insert(&account_id);
         }
+        // TODO: assert near send with the contract creation == council.len() * MINIMAL_NEAR_FOR_COUNCIL
         dao
     }
 
     #[payable]
     pub fn add_proposal(&mut self, proposal: ProposalInput) -> u64 {
         // TOOD: add also extra storage cost for the proposal itself.
+        // TODO; people outside the counsil are also able to do proposals
 
         assert!(
             proposal.description.len() < MAX_DESCRIPTION_LENGTH,
@@ -191,8 +194,6 @@ impl FluxDAO {
         }
     }
 
-    // TODO: Add function to exit dao
-
     pub fn finalize(&mut self, id: u64) {
         let mut proposal = self.proposals.get(id).expect("No proposal with such id");
         assert!(
@@ -227,6 +228,7 @@ impl FluxDAO {
                     ProposalKind::ChangePurpose{ ref purpose } => {
                         self.purpose = purpose.clone();
                     }
+                    // @TODO ProposalKind, ResoluteMarket.
                 };
             }
             ProposalStatus::Reject => {
@@ -249,12 +251,351 @@ impl FluxDAO {
     }
 
     fn kick_user(&mut self, account_id: &AccountId) {
-        let prosalid = self.last_voted.get(account_id);
-        if !prosalid.is_none() {
-            let proposal = self.proposals.get(prosalid.unwrap()).expect("ERR_PROPOSAL_NOT_FOUND");
+        // e.g. if the proposal is RemoveCouncil for Bob, and bob votes on this removal.
+        // The vote can never be executed
+        // TODO: exclude RemoveCouncil voters where target user = account_id
+        let proposalid = self.last_voted.get(account_id);
+        if !proposalid.is_none() {
+            let proposal = self.proposals.get(proposalid.unwrap()).expect("ERR_PROPOSAL_NOT_FOUND");
             assert!(env::block_timestamp() > proposal.vote_period_end, "ERR_VOTING_ACTIVE")
         }
         assert!(self.council.remove(account_id), "ERR_NOT_IN_COUNCIL");
         Promise::new(account_id.to_string()).transfer(to_yocto(MINIMAL_NEAR_FOR_COUNCIL));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(test)]
+mod tests {
+    use near_sdk::MockedBlockchain;
+    use near_sdk::{testing_env, VMContext};
+
+    use super::*;
+
+    fn alice() -> AccountId {
+        "alice.near".to_string()
+    }
+    fn bob() -> AccountId {
+        "bob.near".to_string()
+    }
+    fn carol() -> AccountId {
+        "carol.near".to_string()
+    }
+
+    fn get_context(predecessor_account_id: AccountId) -> VMContext {
+        VMContext {
+            current_account_id: alice(),
+            signer_account_id: bob(),
+            signer_account_pk: vec![0, 1, 2],
+            predecessor_account_id,
+            input: vec![],
+            block_index: 0,
+            block_timestamp: 0,
+            account_balance: 0,
+            account_locked_balance: 0,
+            storage_usage: 10u64.pow(6),
+            attached_deposit: 0,
+            prepaid_gas: 10u64.pow(18),
+            random_seed: vec![0, 1, 2],
+            is_view: false,
+            output_data_receivers: vec![],
+            epoch_height: 0,
+        }
+    }
+
+    #[test]
+    fn test_new() {
+        let context = get_context(carol());
+        testing_env!(context);
+        let contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice(), bob()],
+            U128(1_000_000_u128),
+            U64(1000_u64),
+            U64(2000_u64)
+        );
+
+        let purpose = String::from("do cool shit");
+        let bond_amount:WrappedBalance  = U128(1_000_000_u128);
+        let vote_period:WrappedDuration = U64(1000_u64);
+        let grace_period:WrappedDuration = U64(2000_u64);
+        let council = vec![alice(), bob()];
+        assert_eq!(contract.get_bond(), bond_amount);
+        assert_eq!(contract.get_vote_period(), vote_period);
+        assert_eq!(contract.get_council(), council);
+        assert_eq!(contract.get_num_proposals(), 0);
+        assert_eq!(contract.get_purpose(), purpose);
+
+        assert_eq!(contract.purpose, purpose);
+        assert_eq!(contract.bond, bond_amount.into());
+        //assert_eq!(contract.vote_period, vote_period.into());
+        //assert_eq!(contract.grace_period, grace_period.into());
+        assert_eq!(contract.policy.len(), 1);
+        assert_eq!(contract.council.len(), 2);
+        assert_eq!(contract.proposals.len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Not enough deposit")]
+    fn test_add_new_council_proposal_insufficient_deposit() {
+        let mut context = get_context(carol());
+        context.attached_deposit = to_yocto(4999);
+        testing_env!(context);
+
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice(), bob()],
+            U128(1_000_000_u128),
+            U64(0),
+            U64(0),
+        );
+        let purpose = String::from("carol is cool");
+        let proposal = ProposalInput {
+            target: carol(),
+            description: purpose,
+            kind: ProposalKind::NewCouncil,
+        };
+        contract.add_proposal(proposal);
+    }
+    // @todo description too long test
+
+    #[test]
+    fn test_exit_dao() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice(), bob()],
+            U128(0),
+            U64(0),
+            U64(0),
+        );
+        assert_eq!(contract.council.len(), 2);
+        contract.exit_dao();
+        assert_eq!(contract.council.len(), 1);
+        // TODO test for running polls
+    }
+
+    #[test]
+    fn test_add_new_council_proposal() {
+        let mut context = get_context(carol());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice()],
+            // @TODO, bond transfer fails if it is not 0, attach deposit? Or funds from pool?
+            U128(0),
+            U64(0),
+            U64(0),
+        );
+        let description = String::from("carol is cool");
+        let proposal = ProposalInput {
+            target: carol(),
+            description: description.clone(),
+            kind: ProposalKind::NewCouncil,
+        };
+
+        // Carol (not in council) creates a proposal to include her in the counsil
+        let index:u64 = contract.add_proposal(proposal);
+        // TODO, verify contract balance in NEAR
+        assert_eq!(index, 0);
+        assert_eq!(contract.get_num_proposals(), 1);
+        let mut proposal = contract.get_proposal(0);
+        assert_eq!(proposal.status, ProposalStatus::Vote);
+        assert_eq!(proposal.proposer, carol());
+        assert_eq!(proposal.target, carol());
+        assert_eq!(proposal.description, description);
+        //assert_eq!(proposal.kind, ProposalKind::NewCouncil);
+        // TODO, how to get block timestamp of tx
+        //assert_eq!(proposal.vote_period_end, timestamp+U64(1000_u64));
+        assert_eq!(proposal.vote_yes, 0);
+        assert_eq!(proposal.vote_no, 0);
+
+        context = get_context(alice());
+        testing_env!(context);
+
+        assert_eq!(contract.council.len(), 1);
+        contract.vote(0, Vote::Yes);
+        proposal = contract.get_proposal(0);
+        assert_eq!(proposal.vote_yes, 1);
+        assert_eq!(proposal.vote_no, 0);
+        assert_eq!(proposal.status, ProposalStatus::Success);
+        assert_eq!(proposal.proposer, carol());
+        assert_eq!(proposal.target, carol());
+        assert_eq!(proposal.description, description);
+        assert_eq!(contract.council.len(), 2);
+    }
+
+
+    #[test]
+    fn test_remove_council_proposal() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice(), bob(), carol()],
+            U128(0),
+            U64(0),
+            U64(0),
+        );
+        let description = String::from("bob sucks");
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::RemoveCouncil,
+        };
+        let index:u64 = contract.add_proposal(proposal);
+
+        assert_eq!(contract.council.len(), 3);
+
+        contract.vote(0, Vote::Yes);
+        let mut context = get_context(carol());
+        // TODO, is sending near expected in this case
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+        contract.vote(0, Vote::Yes);
+
+        assert_eq!(contract.council.len(), 2);
+    }
+
+    #[test]
+    fn test_payout_proposal() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice()],
+            U128(0),
+            U64(0),
+            U64(0),
+        );
+        let description = String::from("bob payout");
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::Payout{ amount: U128(to_yocto(1)) },
+        };
+        contract.add_proposal(proposal);
+        contract.vote(0, Vote::Yes);
+        // TODO, check balance
+    }
+
+    #[test]
+    fn test_vote_period_proposal() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice()],
+            U128(0),
+            U64(0),
+            U64(0),
+        );
+        let description = String::from("vote period");
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::ChangeVotePeriod{ vote_period: U64(1) },
+        };
+        contract.add_proposal(proposal);
+        assert_eq!(contract.get_vote_period(), U64(0));
+        contract.vote(0, Vote::Yes);
+        assert_eq!(contract.get_vote_period(), U64(1));
+        // TODO, check balance
+    }
+
+    #[test]
+    fn test_change_bond_proposal() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice()],
+            U128(0),
+            U64(0),
+            U64(0),
+        );
+        let description = String::from("bond");
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::ChangeBond{ bond: U128(1) },
+        };
+        contract.add_proposal(proposal);
+        assert_eq!(contract.get_bond(), U128(0));
+        contract.vote(0, Vote::Yes);
+        assert_eq!(contract.get_bond(), U128(1));
+        // TODO, check balance
+    }
+
+    #[test]
+    fn test_change_policy_proposal() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice()],
+            U128(0),
+            U64(0),
+            U64(0),
+        );
+        let description = String::from("policy");
+        let policy = vec![PolicyItem {
+            max_amount: 0.into(),
+            votes: NumOrRatio::Ratio(1, 2),
+        },
+        PolicyItem {
+            max_amount: 1.into(),
+            votes: NumOrRatio::Ratio(1, 2),
+        }];
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::ChangePolicy{ policy },
+        };
+        contract.add_proposal(proposal);
+        assert_eq!(contract.policy.len(), 1);
+        contract.vote(0, Vote::Yes);
+        assert_eq!(contract.policy.len(), 2);
+    }
+
+    #[test]
+    fn test_change_purpose_proposal() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let purpose = String::from("do cool shit");
+        let mut contract = FluxDAO::new(
+            purpose.clone(),
+            vec![alice()],
+            U128(0),
+            U64(0),
+            U64(0),
+        );
+        let description = String::from("do cooler shit");
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::ChangePurpose{ purpose: description.clone() },
+        };
+        contract.add_proposal(proposal);
+        assert_eq!(contract.purpose, purpose);
+        contract.vote(0, Vote::Yes);
+        assert_eq!(contract.purpose, description);
     }
 }
