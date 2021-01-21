@@ -28,7 +28,6 @@ const MAX_DESCRIPTION_LENGTH: usize = 280;
 const MINIMAL_NEAR_FOR_COUNCIL: u128 = 1000;
 const RESOLUTION_GAS: u64 = 5_000_000_000;
 
-// TODO: convert all public function params and return types of type u64 or u128 to U64 and U128
 
 #[near_bindgen]
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -40,6 +39,7 @@ pub struct FluxDAO {
     policy: Vec<PolicyItem>,
     council: UnorderedSet<AccountId>,
     proposals: Vector<Proposal>,
+    // todo, does this u64 also need to be U64?
     last_voted: UnorderedMap<AccountId, u64>,
     protocol_address: String
 }
@@ -89,7 +89,7 @@ impl FluxDAO {
     }
 
     #[payable]
-    pub fn add_proposal(&mut self, proposal: ProposalInput) -> u64 {
+    pub fn add_proposal(&mut self, proposal: ProposalInput) -> U64 {
         // TODO: add protocol to change `self.protocol_address`
         // TODO: add also extra storage cost for the proposal itself.
         // TODO; people outside the counsil are also able to do proposals
@@ -135,7 +135,7 @@ impl FluxDAO {
         };
 
         self.proposals.push(&p);
-        self.proposals.len() - 1
+        U64(self.proposals.len() - 1)
     }
 
     pub fn get_vote_period(&self) -> WrappedDuration {
@@ -150,10 +150,11 @@ impl FluxDAO {
         self.council.to_vec()
     }
 
-    pub fn get_num_proposals(&self) -> u64 {
-        self.proposals.len()
+    pub fn get_num_proposals(&self) -> U64 {
+        U64(self.proposals.len())
     }
 
+    // todo set to U64
     pub fn get_proposals(&self, from_index: u64, limit: u64) -> Vec<Proposal> {
         (from_index..std::cmp::min(from_index + limit, self.proposals.len()))
             .map(|index| self.proposals.get(index).unwrap())
@@ -169,12 +170,11 @@ impl FluxDAO {
     }
 
     pub fn vote(&mut self, id: U64, vote: Vote) {
-        let id: u64 = id.into();
         assert!(
             self.council.contains(&env::predecessor_account_id()),
             "Only council can vote"
         );
-        let mut proposal = self.proposals.get(id).expect("No proposal with such id");
+        let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
         assert_eq!(
             proposal.status,
             ProposalStatus::Vote,
@@ -194,7 +194,7 @@ impl FluxDAO {
             Vote::No => proposal.vote_no += 1,
         }
         proposal.votes.insert(env::predecessor_account_id(), vote);
-        self.last_voted.insert(&env::predecessor_account_id(), &id);
+        self.last_voted.insert(&env::predecessor_account_id(), &id.into());
 
         let post_status = proposal.vote_status(&self.policy, self.council.len());
         // If just changed from vote to Delay, adjust the expiration date to grace period.
@@ -202,15 +202,15 @@ impl FluxDAO {
             proposal.vote_period_end = env::block_timestamp() + self.grace_period;
             proposal.status = post_status.clone();
         }
-        self.proposals.replace(id, &proposal);
+        self.proposals.replace(id.into(), &proposal);
         // Finalize if this vote is done.
         if post_status.is_finalized() {
             self.finalize(id);
         }
     }
 
-    pub fn finalize(&mut self, id: u64) {
-        let mut proposal = self.proposals.get(id).expect("No proposal with such id");
+    pub fn finalize(&mut self, id: U64) {
+        let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
         assert!(
             !proposal.status.is_finalized(),
             "Proposal already finalized"
@@ -266,7 +266,7 @@ impl FluxDAO {
                 env::panic(b"voting period has not expired and no majority vote yet")
             }
         }
-        self.proposals.replace(id, &proposal);
+        self.proposals.replace(id.into(), &proposal);
     }
 
     pub fn exit_dao(&mut self) {
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(contract.get_bond(), bond_amount);
         assert_eq!(contract.get_vote_period(), vote_period);
         assert_eq!(contract.get_council(), council);
-        assert_eq!(contract.get_num_proposals(), 0);
+        assert_eq!(contract.get_num_proposals(), U64(0));
         assert_eq!(contract.get_purpose(), purpose);
 
         assert_eq!(contract.purpose, purpose);
@@ -431,10 +431,10 @@ mod tests {
         };
 
         // Carol (not in council) creates a proposal to include her in the counsil
-        let index:u64 = contract.add_proposal(proposal);
+        let index:U64 = contract.add_proposal(proposal);
         // TODO, verify contract balance in NEAR
-        assert_eq!(index, 0);
-        assert_eq!(contract.get_num_proposals(), 1);
+        assert_eq!(index, U64(0));
+        assert_eq!(contract.get_num_proposals(), U64(1));
         let mut proposal = contract.get_proposal(U64(0));
         assert_eq!(proposal.status, ProposalStatus::Vote);
         assert_eq!(proposal.proposer, carol());
@@ -482,7 +482,7 @@ mod tests {
             description: description.clone(),
             kind: ProposalKind::RemoveCouncil,
         };
-        let index:u64 = contract.add_proposal(proposal);
+        let index:U64 = contract.add_proposal(proposal);
 
         assert_eq!(contract.council.len(), 3);
 

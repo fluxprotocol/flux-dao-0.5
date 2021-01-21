@@ -1,8 +1,8 @@
 use near_sdk::{
-    AccountId, 
+    AccountId,
     serde_json::json,
     json_types::{
-        U128, 
+        U128,
         U64
     }
 };
@@ -32,6 +32,7 @@ near_sdk_sim::lazy_static! {
     static ref FLUX_WASM_BYTES: &'static [u8] = include_bytes!("../res/flux_protocol.wasm").as_ref();
 }
 
+// todo, constructor also need to be u64->U64, u128->U128?
 fn init(
     initial_balance: u128,
     purpose: String,
@@ -52,10 +53,10 @@ fn init(
         signer_account: master_account,
         // init method
         init_method: new(
-            purpose, 
-            council, 
-            U128(bond), 
-            U64(vote_period), 
+            purpose,
+            council,
+            U128(bond),
+            U64(vote_period),
             U64(grace_period),
             protocol_address()
         )
@@ -173,7 +174,7 @@ fn test_cross_contract_resolution() {
         },
     };
 
-    let proposal_id: u64 = call!(
+    let proposal_id: U64 = call!(
         master_account,
         dao.add_proposal(proposal),
         deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
@@ -181,15 +182,15 @@ fn test_cross_contract_resolution() {
 
     let vote_res_c1 = call!(
         c1,
-        dao.vote(U64(proposal_id), Vote::Yes),
+        dao.vote(proposal_id, Vote::Yes),
         deposit = 0
     );
 
     assert!(vote_res_c1.is_ok());
-    
+
     let vote_res_c2 = call!(
         c2,
-        dao.vote(U64(proposal_id), Vote::Yes),
+        dao.vote(proposal_id, Vote::Yes),
         deposit = 0
     );
     println!("vote {:?}", vote_res_c2);
@@ -203,6 +204,6 @@ fn test_cross_contract_resolution() {
 
     // assert!(finalize_res.is_ok());
 
-    
+
 }
 // test cross contract resolution
