@@ -74,6 +74,12 @@ fn init(
         .deploy_contract((&FLUX_WASM_BYTES).to_vec())
         .submit();
 
+    // transfer some NEAR to alice
+    let tx2 = master_account.create_transaction(alice.account_id());
+    let res2 = tx2
+        .transfer(to_yocto(MINIMAL_NEAR_FOR_COUNCIL))
+        .submit();
+
     init_protocol(&token_contract);
 
     (master_account, dao_contract, alice, bob, carol)
@@ -144,7 +150,7 @@ fn test_new_proposal() {
     };
 
     let res = call!(
-        master_account,
+        c1,
         dao.add_proposal(proposal),
         deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
     );
@@ -175,7 +181,7 @@ fn test_cross_contract_resolution() {
     };
 
     let proposal_id: U64 = call!(
-        master_account,
+        c1,
         dao.add_proposal(proposal),
         deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
     ).unwrap_json();

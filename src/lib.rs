@@ -92,11 +92,14 @@ impl FluxDAO {
     pub fn add_proposal(&mut self, proposal: ProposalInput) -> U64 {
         // TODO: add protocol to change `self.protocol_address`
         // TODO: add also extra storage cost for the proposal itself.
-        // TODO; people outside the counsil are also able to do proposals
         // TODO: transfer `env::attached_deposit() - to_yocto(MINIMAL_NEAR_FOR_COUNCIL)` back to env::predecessor_account
         assert!(
             proposal.description.len() < MAX_DESCRIPTION_LENGTH,
             "Description length is too long"
+        );
+        assert!(
+            self.council.contains(&env::predecessor_account_id()),
+            "Only council can create proposals"
         );
 
         // Input verification.
@@ -412,7 +415,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Not enough deposit")]
     fn test_add_new_council_proposal_insufficient_deposit() {
-        let mut context = get_context(carol());
+        let mut context = get_context(alice());
         context.attached_deposit = to_yocto(999);
         testing_env!(context);
 
@@ -443,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_add_new_council_proposal() {
-        let mut context = get_context(carol());
+        let mut context = get_context(alice());
         context.attached_deposit = to_yocto(1000);
         testing_env!(context);
 
@@ -462,7 +465,7 @@ mod tests {
         assert_eq!(contract.get_num_proposals(), U64(1));
         let mut proposal = contract.get_proposal(U64(0));
         assert_eq!(proposal.status, ProposalStatus::Vote);
-        assert_eq!(proposal.proposer, carol());
+        assert_eq!(proposal.proposer, alice());
         assert_eq!(proposal.target, carol());
         assert_eq!(proposal.description, description);
         //assert_eq!(proposal.kind, ProposalKind::NewCouncil);
@@ -480,7 +483,7 @@ mod tests {
         assert_eq!(proposal.vote_yes, 1);
         assert_eq!(proposal.vote_no, 0);
         assert_eq!(proposal.status, ProposalStatus::Success);
-        assert_eq!(proposal.proposer, carol());
+        assert_eq!(proposal.proposer, alice());
         assert_eq!(proposal.target, carol());
         assert_eq!(proposal.description, description);
         assert_eq!(contract.council.len(), 2);
@@ -496,6 +499,29 @@ mod tests {
         assert_eq!(contract.council.len(), 1);
         contract.exit_dao();
         assert_eq!(contract.council.len(), 0);
+        // TODO test for running polls
+    }
+
+    #[test]
+    #[should_panic(expected = "Only council can create proposals")]
+    fn test_proposal_outside_council() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = init();
+        let mut context = get_context(bob());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let description = String::from("bob sucks");
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::NewCouncil,
+        };
+        let index:U64 = contract.add_proposal(proposal);
+        assert_eq!(index, U64(0));
         // TODO test for running polls
     }
 
