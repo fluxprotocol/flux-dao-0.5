@@ -54,7 +54,6 @@ fn init(
         // init method
         init_method: new(
             purpose,
-            council,
             U128(bond),
             U64(vote_period),
             U64(grace_period),
@@ -81,6 +80,13 @@ fn init(
         .submit();
 
     init_protocol(&token_contract);
+
+    let res = call!(
+        master_account,
+        dao_contract.init(council),
+        deposit = to_yocto("5000")
+    );
+    assert!(res.is_ok());
 
     (master_account, dao_contract, alice, bob, carol)
 }
