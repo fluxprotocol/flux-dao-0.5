@@ -280,7 +280,7 @@ impl FluxDAO {
         let proposalid = self.last_voted.get(account_id);
         if !proposalid.is_none() {
             let proposal = self.proposals.get(proposalid.unwrap()).expect("ERR_PROPOSAL_NOT_FOUND");
-            assert!(env::block_timestamp() > proposal.vote_period_end, "ERR_VOTING_ACTIVE")
+            assert!(proposal.status != ProposalStatus::Vote, "ERR_VOTING_ACTIVE")
         }
         assert!(self.council.remove(account_id), "ERR_NOT_IN_COUNCIL");
         Promise::new(account_id.to_string()).transfer(to_yocto(MINIMAL_NEAR_FOR_COUNCIL));
@@ -330,6 +330,41 @@ mod tests {
         }
     }
 
+    fn init() -> FluxDAO {
+        FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice()],
+            U128(0),
+            U64(0),
+            U64(0),
+            protocol_address()
+        )
+    }
+
+    fn add_bob(contract : &mut FluxDAO) {
+        let proposal = ProposalInput {
+            target: bob(),
+            description:  String::from("add bob"),
+            kind: ProposalKind::NewCouncil,
+        };
+        let index:U64 = contract.add_proposal(proposal);
+        contract.vote(index, Vote::Yes);
+    }
+
+    fn add_carol(contract : &mut FluxDAO) {
+        let proposal = ProposalInput {
+            target: carol(),
+            description:  String::from("add carol"),
+            kind: ProposalKind::NewCouncil,
+        };
+        let index:U64 = contract.add_proposal(proposal);
+        contract.vote(index, Vote::Yes);
+
+        let mut context = get_context(bob());
+        testing_env!(context);
+        contract.vote(index, Vote::Yes);
+    }
+
     #[test]
     fn test_new() {
         let context = get_context(carol());
@@ -370,14 +405,7 @@ mod tests {
         context.attached_deposit = to_yocto(999);
         testing_env!(context);
 
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice(), bob()],
-            U128(1_000_000_u128),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
+        let mut contract = init();
         let purpose = String::from("carol is cool");
         let proposal = ProposalInput {
             target: carol(),
@@ -394,17 +422,10 @@ mod tests {
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
 
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice(), bob()],
-            U128(0),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
-        assert_eq!(contract.council.len(), 2);
-        contract.exit_dao();
+        let mut contract = init();
         assert_eq!(contract.council.len(), 1);
+        contract.exit_dao();
+        assert_eq!(contract.council.len(), 0);
         // TODO test for running polls
     }
 
@@ -414,15 +435,7 @@ mod tests {
         context.attached_deposit = to_yocto(1000);
         testing_env!(context);
 
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice()],
-            // @TODO, bond transfer fails if it is not 0, attach deposit? Or funds from pool?
-            U128(0),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
+        let mut contract = init();
         let description = String::from("carol is cool");
         let proposal = ProposalInput {
             target: carol(),
@@ -467,15 +480,9 @@ mod tests {
         let mut context = get_context(alice());
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
-
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice(), bob(), carol()],
-            U128(0),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
+        let mut contract = init();
+        add_bob(&mut contract);
+        add_carol(&mut contract);
         let description = String::from("bob sucks");
         let proposal = ProposalInput {
             target: bob(),
@@ -486,12 +493,15 @@ mod tests {
 
         assert_eq!(contract.council.len(), 3);
 
-        contract.vote(U64(0), Vote::Yes);
+        let mut context = get_context(alice());
+        testing_env!(context);
+        contract.vote(index, Vote::Yes);
+
         let mut context = get_context(carol());
         // TODO, is sending near expected in this case
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
-        contract.vote(U64(0), Vote::Yes);
+        contract.vote(index, Vote::Yes);
 
         assert_eq!(contract.council.len(), 2);
     }
@@ -502,14 +512,7 @@ mod tests {
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
 
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice()],
-            U128(0),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
+        let mut contract = init();
         let description = String::from("bob payout");
         let proposal = ProposalInput {
             target: bob(),
@@ -527,14 +530,7 @@ mod tests {
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
 
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice()],
-            U128(0),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
+        let mut contract = init();
         let description = String::from("vote period");
         let proposal = ProposalInput {
             target: bob(),
@@ -554,14 +550,7 @@ mod tests {
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
 
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice()],
-            U128(0),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
+        let mut contract = init();
         let description = String::from("bond");
         let proposal = ProposalInput {
             target: bob(),
@@ -581,14 +570,7 @@ mod tests {
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
 
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice()],
-            U128(0),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
+        let mut contract = init();
         let description = String::from("policy");
         let policy = vec![PolicyItem {
             max_amount: 0.into(),
@@ -616,14 +598,7 @@ mod tests {
         testing_env!(context);
 
         let purpose = String::from("do cool shit");
-        let mut contract = FluxDAO::new(
-            purpose.clone(),
-            vec![alice()],
-            U128(0),
-            U64(0),
-            U64(0),
-            protocol_address()
-        );
+        let mut contract = init();
         let description = String::from("do cooler shit");
         let proposal = ProposalInput {
             target: bob(),
