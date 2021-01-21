@@ -275,13 +275,23 @@ impl FluxDAO {
     }
 
     fn kick_user(&mut self, account_id: &AccountId) {
-        // e.g. if the proposal is RemoveCouncil for Bob, and bob votes on this removal.
-        // The vote can never be executed
-        // TODO: exclude RemoveCouncil voters where target user = account_id
         let proposalid = self.last_voted.get(account_id);
         if !proposalid.is_none() {
             let proposal = self.proposals.get(proposalid.unwrap()).expect("ERR_PROPOSAL_NOT_FOUND");
-            assert!(proposal.status != ProposalStatus::Vote, "ERR_VOTING_ACTIVE")
+
+            match proposal.kind {
+                ProposalKind::RemoveCouncil => {
+                    // TODO, can this cause pointer issues?
+                    if &proposal.target != account_id {
+                        // if last vote of removeCouncil with target --> this user.
+                        // dont revert on active vote
+                        assert!(proposal.status != ProposalStatus::Vote, "ERR_VOTING_ACTIVE");
+                    }
+                },
+                _ => {
+                    assert!(proposal.status != ProposalStatus::Vote, "ERR_VOTING_ACTIVE");
+                }
+            }
         }
         assert!(self.council.remove(account_id), "ERR_NOT_IN_COUNCIL");
         Promise::new(account_id.to_string()).transfer(to_yocto(MINIMAL_NEAR_FOR_COUNCIL));
@@ -513,6 +523,36 @@ mod tests {
 
         let mut context = get_context(carol());
         // TODO, is sending near expected in this case
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+        contract.vote(index, Vote::Yes);
+
+        assert_eq!(contract.council.len(), 2);
+    }
+
+    #[test]
+    fn test_remove_council_proposal_voteself() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+        let mut contract = init();
+        add_bob(&mut contract);
+        add_carol(&mut contract);
+        let description = String::from("bob sucks");
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::RemoveCouncil,
+        };
+        let index:U64 = contract.add_proposal(proposal);
+        assert_eq!(contract.council.len(), 3);
+
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+        contract.vote(index, Vote::Yes);
+
+        let mut context = get_context(bob());
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
         contract.vote(index, Vote::Yes);
