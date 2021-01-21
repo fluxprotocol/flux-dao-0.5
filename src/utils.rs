@@ -14,5 +14,5 @@ pub fn vote_requirement(policy: &[PolicyItem], num_council: u64, amount: Option<
 }
 
 pub fn to_yocto(value: u128) -> u128 {
-    value * 18u128.pow(24)
+    value * 10_u128.pow(24)
 }

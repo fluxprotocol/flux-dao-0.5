@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{ AccountId, Balance, env };
+use near_sdk::{ json_types::{U64, U128} };
 use crate::types::{ WrappedBalance, WrappedDuration, Duration, Vote };
 use crate::policy_item::{ PolicyItem };
 use crate::proposal_status::{ ProposalStatus };
@@ -27,6 +28,7 @@ pub enum ProposalKind {
     ChangeBond { bond: WrappedBalance },
     ChangePolicy { policy: Vec<PolicyItem> },
     ChangePurpose { purpose: String },
+    ResoluteMarket { market_id: U64, payout_numerator: Option<Vec<U128>> }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
