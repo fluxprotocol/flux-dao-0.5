@@ -195,15 +195,5 @@ fn test_cross_contract_resolution() {
     );
     println!("vote {:?}", vote_res_c2);
     assert!(vote_res_c2.is_ok());
-
-    // let finalize_res = call!(
-    //     c1,
-    //     dao.finalize(proposal_id.into()),
-    //     deposit = 0
-    // );
-
-    // assert!(finalize_res.is_ok());
-
-
 }
 // test cross contract resolution

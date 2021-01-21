@@ -198,6 +198,7 @@ impl FluxDAO {
 
         let post_status = proposal.vote_status(&self.policy, self.council.len());
         // If just changed from vote to Delay, adjust the expiration date to grace period.
+        // TODO, this will reset the vote_period_end after every vote
         if !post_status.is_finalized() {
             proposal.vote_period_end = env::block_timestamp() + self.grace_period;
             proposal.status = post_status.clone();
@@ -406,27 +407,28 @@ mod tests {
         testing_env!(context);
 
         let mut contract = init();
-        let purpose = String::from("carol is cool");
         let proposal = ProposalInput {
             target: carol(),
-            description: purpose,
+            description: String::from("carol is cool"),
             kind: ProposalKind::NewCouncil,
         };
         contract.add_proposal(proposal);
     }
-    // @todo description too long test
 
     #[test]
-    fn test_exit_dao() {
-        let mut context = get_context(alice());
-        context.attached_deposit = to_yocto(5000);
+    #[should_panic(expected = "Description length is too long")]
+    fn test_add_new_council_invalid_description() {
+        let mut context = get_context(carol());
+        context.attached_deposit = to_yocto(999);
         testing_env!(context);
 
         let mut contract = init();
-        assert_eq!(contract.council.len(), 1);
-        contract.exit_dao();
-        assert_eq!(contract.council.len(), 0);
-        // TODO test for running polls
+        let proposal = ProposalInput {
+            target: carol(),
+            description: String::from("a").repeat(281),
+            kind: ProposalKind::NewCouncil,
+        };
+        contract.add_proposal(proposal);
     }
 
     #[test]
@@ -474,6 +476,18 @@ mod tests {
         assert_eq!(contract.council.len(), 2);
     }
 
+    #[test]
+    fn test_exit_dao() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = init();
+        assert_eq!(contract.council.len(), 1);
+        contract.exit_dao();
+        assert_eq!(contract.council.len(), 0);
+        // TODO test for running polls
+    }
 
     #[test]
     fn test_remove_council_proposal() {
@@ -609,5 +623,152 @@ mod tests {
         assert_eq!(contract.purpose, purpose);
         contract.vote(U64(0), Vote::Yes);
         assert_eq!(contract.purpose, description);
+    }
+
+    #[test]
+    fn test_change_bond_proposal_fail() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = init();
+        let description = String::from("bond");
+        let proposal = ProposalInput {
+            target: bob(),
+            description: description.clone(),
+            kind: ProposalKind::ChangeBond{ bond: U128(1) },
+        };
+        let index:U64 = contract.add_proposal(proposal);
+
+        assert_eq!(contract.get_bond(), U128(0));
+        contract.vote(index, Vote::No);
+        assert_eq!(contract.get_bond(), U128(0));
+
+        let p:Proposal = contract.get_proposal(index);
+        assert_eq!(p.status, ProposalStatus::Reject);
+        // TODO, check balance
+    }
+
+    #[test]
+    fn test_vote__timestamp_fail() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let purpose = String::from("do cool shit");
+        let mut contract =  FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice()],
+            U128(0),
+            U64(100),
+            U64(0),
+            protocol_address()
+        );
+        add_bob(&mut contract);
+        let proposal = ProposalInput {
+            target: bob(),
+            description: String::from("do cooler shit"),
+            kind: ProposalKind::ChangePurpose{ purpose: String::from("do cooler shit") },
+        };
+        let index:U64 = contract.add_proposal(proposal);
+
+        let mut context = get_context(alice());
+        context.block_timestamp = 101;
+        testing_env!(context);
+        contract.finalize(index);
+
+        let p:Proposal = contract.get_proposal(index);
+        assert_eq!(p.status, ProposalStatus::Fail);
+    }
+
+    //TODO
+    // #[test]
+    // fn test_vote_delay() {
+    //     let mut context = get_context(alice());
+    //     context.attached_deposit = to_yocto(5000);
+    //     testing_env!(context);
+
+    //     let mut contract = init();
+    //     let proposal = ProposalInput {
+    //         target: bob(),
+    //         description: String::from("policy"),
+    //         kind: ProposalKind::ChangePolicy{ policy: vec![
+    //             PolicyItem {
+    //                 max_amount: 0.into(),
+    //                 votes: NumOrRatio::Ratio(1, 3),
+    //             }
+    //         ]},
+    //     };
+    //     contract.add_proposal(proposal);
+    //     contract.vote(U64(0), Vote::Yes);
+    //     assert_eq!(1, 2);
+    // }
+
+    #[test]
+    #[should_panic(expected = "Only council can vote")]
+    fn test_no_council_vote() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = init();
+        let proposal = ProposalInput {
+            target: bob(),
+            description: String::from("x"),
+            kind: ProposalKind::ChangePurpose{ purpose:String::from("y") },
+        };
+        contract.add_proposal(proposal);
+
+        let mut context = get_context(bob());
+        testing_env!(context);
+        contract.vote(U64(0), Vote::Yes);
+    }
+
+    #[test]
+    #[should_panic(expected = "No proposal with such id")]
+    fn test_no_proposal_vote() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = init();
+        contract.vote(U64(0), Vote::Yes);
+    }
+
+    #[test]
+    #[should_panic(expected = "Proposal already finalized")]
+    fn test_proposal_already_finalized() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = init();
+        let proposal = ProposalInput {
+            target: bob(),
+            description: String::from("x"),
+            kind: ProposalKind::ChangePurpose{ purpose:String::from("y") },
+        };
+        contract.add_proposal(proposal);
+        contract.vote(U64(0), Vote::Yes);
+        contract.vote(U64(0), Vote::Yes);
+    }
+
+    #[test]
+    #[should_panic(expected = "Already voted")]
+    fn test_already_voted() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let mut contract = init();
+        add_bob(&mut contract);
+        let proposal = ProposalInput {
+            target: bob(),
+            description: String::from("x"),
+            kind: ProposalKind::ChangePurpose{ purpose:String::from("y") },
+        };
+        contract.add_proposal(proposal);
+        contract.vote(U64(1), Vote::Yes);
+        contract.vote(U64(1), Vote::Yes);
     }
 }

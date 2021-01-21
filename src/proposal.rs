@@ -57,6 +57,7 @@ impl Proposal {
     pub fn vote_status(&self, policy: &[PolicyItem], num_council: u64) -> ProposalStatus {
         let votes_required = vote_requirement(policy, num_council, self.get_amount());
         let max_votes = policy[policy.len() - 1].num_votes(num_council);
+
         if self.vote_yes >= max_votes {
             ProposalStatus::Success
         } else if self.vote_yes >= votes_required && self.vote_no == 0 {
