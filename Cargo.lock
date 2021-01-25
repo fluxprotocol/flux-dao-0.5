@@ -577,7 +577,7 @@ dependencies = [
 name = "flux-dao"
 version = "0.3.0"
 dependencies = [
- "near-sdk 2.0.1",
+ "near-sdk",
  "near-sdk-sim",
 ]
 
@@ -1074,24 +1074,7 @@ dependencies = [
  "borsh",
  "bs58",
  "near-runtime-fees 2.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-sdk-macros 2.0.0",
- "near-vm-logic 2.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "serde_json",
- "wee_alloc",
-]
-
-[[package]]
-name = "near-sdk"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7247d658c51447ea3cd6e86ea55131cf85d17a40f844fc22a0699346ba2fd93"
-dependencies = [
- "base64",
- "borsh",
- "bs58",
- "near-runtime-fees 2.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-sdk-macros 2.0.1",
+ "near-sdk-macros",
  "near-vm-logic 2.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
@@ -1110,35 +1093,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-sdk-core"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d058a4b835f5b8bb9783cc5acb27ba13f1810e546c020f4bac28a9093f64012"
-dependencies = [
- "Inflector",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "near-sdk-macros"
 version = "2.0.0"
 source = "git+https://github.com/near/near-sdk-rs.git?tag=2.2.0#ea112e2bc996c9ff11d45f052b4e00d060fa62e9"
 dependencies = [
- "near-sdk-core 2.0.0",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "near-sdk-macros"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "320be357d10a590c270c7f77658e9fb0503a4a1d1d1a49ec3ed9570be864230b"
-dependencies = [
- "near-sdk-core 2.0.1",
+ "near-sdk-core",
  "proc-macro2",
  "quote",
  "syn",
@@ -1154,7 +1113,7 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-runtime-configs",
- "near-sdk 2.0.0",
+ "near-sdk",
  "near-store",
  "node-runtime",
 ]

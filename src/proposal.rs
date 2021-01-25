@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{ AccountId, Balance, env };
+use near_sdk::{ json_types::{U64, U128} };
 use crate::types::{ WrappedBalance, WrappedDuration, Duration, Vote };
 use crate::policy_item::{ PolicyItem };
 use crate::proposal_status::{ ProposalStatus };
@@ -27,6 +28,10 @@ pub enum ProposalKind {
     ChangeBond { bond: WrappedBalance },
     ChangePolicy { policy: Vec<PolicyItem> },
     ChangePurpose { purpose: String },
+    ResoluteMarket { market_id: U64, payout_numerator: Option<Vec<U128>> },
+    ChangeProtocolAddress { address: String },
+    SetTokenWhitelist { whitelist: Vec<AccountId> },
+    AddTokenWhitelist { to_add: AccountId }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
@@ -55,6 +60,7 @@ impl Proposal {
     pub fn vote_status(&self, policy: &[PolicyItem], num_council: u64) -> ProposalStatus {
         let votes_required = vote_requirement(policy, num_council, self.get_amount());
         let max_votes = policy[policy.len() - 1].num_votes(num_council);
+
         if self.vote_yes >= max_votes {
             ProposalStatus::Success
         } else if self.vote_yes >= votes_required && self.vote_no == 0 {
