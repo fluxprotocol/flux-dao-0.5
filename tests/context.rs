@@ -208,4 +208,87 @@ fn test_cross_contract_resolution() {
     println!("vote {:?}", vote_res_c2);
     assert!(vote_res_c2.is_ok());
 }
-// test cross contract resolution
+
+#[test]
+fn test_cross_contract_set_whitelist() {
+    let (master_account, dao, c1, c2, c3) = init(
+        to_yocto("100000000"),
+        "testing".to_string(),
+        vec![alice(), bob()],
+        to_yocto("1"),
+        12938120938,
+        12837129837
+    );
+
+    let proposal = ProposalInput {
+        target: c3.account_id(),
+        description: description(),
+        kind: ProposalKind::SetTokenWhitelist{
+            whitelist: vec![alice(), bob()]
+        },
+    };
+
+    let proposal_id: U64 = call!(
+        c1,
+        dao.add_proposal(proposal),
+        deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
+    ).unwrap_json();
+
+    let vote_res_c1 = call!(
+        c1,
+        dao.vote(proposal_id, Vote::Yes),
+        deposit = 0
+    );
+
+    assert!(vote_res_c1.is_ok());
+
+    let vote_res_c2 = call!(
+        c2,
+        dao.vote(proposal_id, Vote::Yes),
+        deposit = 0
+    );
+    println!("vote {:?}", vote_res_c2);
+    assert!(vote_res_c2.is_ok());
+}
+
+#[test]
+fn test_cross_contract_add_to_whitelist() {
+    let (master_account, dao, c1, c2, c3) = init(
+        to_yocto("100000000"),
+        "testing".to_string(),
+        vec![alice(), bob()],
+        to_yocto("1"),
+        12938120938,
+        12837129837
+    );
+
+    let proposal = ProposalInput {
+        target: c3.account_id(),
+        description: description(),
+        kind: ProposalKind::AddTokenWhitelist{
+            to_add: bob()
+        },
+    };
+
+    let proposal_id: U64 = call!(
+        c1,
+        dao.add_proposal(proposal),
+        deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
+    ).unwrap_json();
+
+    let vote_res_c1 = call!(
+        c1,
+        dao.vote(proposal_id, Vote::Yes),
+        deposit = 0
+    );
+
+    assert!(vote_res_c1.is_ok());
+
+    let vote_res_c2 = call!(
+        c2,
+        dao.vote(proposal_id, Vote::Yes),
+        deposit = 0
+    );
+    println!("vote {:?}", vote_res_c2);
+    assert!(vote_res_c2.is_ok());
+}

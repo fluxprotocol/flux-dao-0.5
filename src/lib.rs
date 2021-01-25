@@ -41,6 +41,7 @@ pub struct FluxDAO {
     proposals: Vector<Proposal>,
     // todo, does this u64 also need to be U64?
     last_voted: UnorderedMap<AccountId, u64>,
+    // TODO, needs to be accountid?
     protocol_address: String,
     init_called: bool
 }
@@ -54,6 +55,8 @@ impl Default for FluxDAO {
 #[ext_contract]
 pub trait FluxProtocol {
     fn resolute_market(&mut self, market_id: U64, payout_numerator: Option<Vec<U128>>);
+    fn set_token_whitelist(&mut self, whitelist: Vec<AccountId>);
+    fn add_to_token_whitelist(&mut self, to_add: AccountId);
 }
 
 #[near_bindgen]
@@ -263,6 +266,25 @@ impl FluxDAO {
                         flux_protocol::resolute_market(
                             *market_id,
                             payout_numerator.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        );
+                    },
+                    ProposalKind::ChangeProtocolAddress{ ref address } => {
+                        self.protocol_address = address.to_string();
+                    },
+                    ProposalKind::SetTokenWhitelist{ ref whitelist } => {
+                        flux_protocol::set_token_whitelist(
+                            whitelist.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        );
+                    },
+                    ProposalKind::AddTokenWhitelist{ ref to_add } => {
+                        flux_protocol::add_to_token_whitelist(
+                            to_add.clone(),
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
@@ -885,5 +907,24 @@ mod tests {
         contract.add_proposal(proposal);
         contract.vote(U64(1), Vote::Yes);
         contract.vote(U64(1), Vote::Yes);
+    }
+
+    #[test]
+    fn test_change_protocol_address() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
+        let protocol_new : AccountId = "protocol".to_string();
+        let mut contract = init();
+        assert_eq!(contract.protocol_address, protocol_address());
+        let proposal = ProposalInput {
+            target: bob(),
+            description: String::from("change protocol address"),
+            kind: ProposalKind::ChangeProtocolAddress{ address: protocol_new.clone() }
+        };
+        contract.add_proposal(proposal);
+        contract.vote(U64(0), Vote::Yes);
+        assert_eq!(contract.protocol_address, protocol_new.clone());
     }
 }

@@ -28,7 +28,10 @@ pub enum ProposalKind {
     ChangeBond { bond: WrappedBalance },
     ChangePolicy { policy: Vec<PolicyItem> },
     ChangePurpose { purpose: String },
-    ResoluteMarket { market_id: U64, payout_numerator: Option<Vec<U128>> }
+    ResoluteMarket { market_id: U64, payout_numerator: Option<Vec<U128>> },
+    ChangeProtocolAddress { address: String },
+    SetTokenWhitelist { whitelist: Vec<AccountId> },
+    AddTokenWhitelist { to_add: AccountId }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
