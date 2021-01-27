@@ -51,6 +51,7 @@ fn init(
         bytes: &DAO_WASM_BYTES,
         // User deploying the contract,
         signer_account: master_account,
+        //deposit: to_yocto(MINIMAL_NEAR_FOR_COUNCIL),
         // init method
         init_method: new(
             purpose,

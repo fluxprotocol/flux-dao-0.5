@@ -39,10 +39,8 @@ pub struct FluxDAO {
     policy: Vec<PolicyItem>,
     council: UnorderedSet<AccountId>,
     proposals: Vector<Proposal>,
-    // todo, does this u64 also need to be U64?
     last_voted: UnorderedMap<AccountId, u64>,
-    // TODO, needs to be accountid?
-    protocol_address: String,
+    protocol_address: AccountId,
     init_called: bool
 }
 
@@ -90,12 +88,13 @@ impl FluxDAO {
 
     #[payable]
     pub fn init(&mut self, council: Vec<AccountId>) {
+        // todo check creator call
         assert!(!self.init_called, "ERR_INIT_CALLED");
         for account_id in council {
             self.council.insert(&account_id);
         }
 
-        // TODO does this need to be ==? Or can funds be recovered?
+        // TODO add storage costs to >= ..
         assert!(
             env::account_balance() >= self.council.len() as u128 * to_yocto(MINIMAL_NEAR_FOR_COUNCIL),
             "ERR_INSUFFICIENT_FUNDS"
@@ -105,7 +104,6 @@ impl FluxDAO {
 
     #[payable]
     pub fn add_proposal(&mut self, proposal: ProposalInput) -> U64 {
-        // TODO: add protocol to change `self.protocol_address`
         // TODO: add also extra storage cost for the proposal itself.
         // TODO: transfer `env::attached_deposit() - to_yocto(MINIMAL_NEAR_FOR_COUNCIL)` back to env::predecessor_account
         assert!(
@@ -318,10 +316,7 @@ impl FluxDAO {
 
             match proposal.kind {
                 ProposalKind::RemoveCouncil => {
-                    // TODO, can this cause pointer issues?
                     if &proposal.target != account_id {
-                        // if last vote of removeCouncil with target --> this user.
-                        // dont revert on active vote
                         assert!(proposal.status != ProposalStatus::Vote, "ERR_VOTING_ACTIVE");
                     }
                 },
