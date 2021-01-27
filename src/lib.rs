@@ -160,9 +160,10 @@ impl FluxDAO {
         U64(self.proposals.len())
     }
 
-    // todo set to U64
-    pub fn get_proposals(&self, from_index: u64, limit: u64) -> Vec<Proposal> {
-        (from_index..std::cmp::min(from_index + limit, self.proposals.len()))
+    pub fn get_proposals(&self, from_index: U64, limit: U64) -> Vec<Proposal> {
+        let from_index_u:u64 = from_index.into();
+        let limit_u:u64 = limit.into();
+        (from_index_u..std::cmp::min(from_index_u + limit_u, self.proposals.len()))
             .map(|index| self.proposals.get(index).unwrap())
             .collect()
     }
