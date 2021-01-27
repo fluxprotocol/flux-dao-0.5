@@ -40,8 +40,7 @@ pub struct FluxDAO {
     council: UnorderedSet<AccountId>,
     proposals: Vector<Proposal>,
     last_voted: UnorderedMap<AccountId, u64>,
-    protocol_address: AccountId,
-    init_called: bool
+    protocol_address: AccountId
 }
 
 impl Default for FluxDAO {
@@ -62,6 +61,7 @@ impl FluxDAO {
     #[init]
     pub fn new(
         purpose: String,
+        council: Vec<AccountId>,
         bond: WrappedBalance,
         vote_period: WrappedDuration,
         grace_period: WrappedDuration,
@@ -80,26 +80,16 @@ impl FluxDAO {
             council: UnorderedSet::new(b"c".to_vec()),
             proposals: Vector::new(b"p".to_vec()),
             last_voted: UnorderedMap::new(b"e".to_vec()),
-            protocol_address,
-            init_called: false
+            protocol_address
         };
-        dao
-    }
-
-    #[payable]
-    pub fn init(&mut self, council: Vec<AccountId>) {
-        // todo check creator call
-        assert!(!self.init_called, "ERR_INIT_CALLED");
-        for account_id in council {
-            self.council.insert(&account_id);
+        for account_id in council.clone() {
+            dao.council.insert(&account_id);
         }
-
-        // TODO add storage costs to >= ..
         assert!(
-            env::account_balance() >= self.council.len() as u128 * to_yocto(MINIMAL_NEAR_FOR_COUNCIL),
+            env::account_balance() >= council.len() as u128 * to_yocto(MINIMAL_NEAR_FOR_COUNCIL),
             "ERR_INSUFFICIENT_FUNDS"
         );
-        self.init_called = true;
+        dao
     }
 
     #[payable]
@@ -376,12 +366,12 @@ mod tests {
     fn init() -> FluxDAO {
         let mut dao = FluxDAO::new(
             String::from("do cool shit"),
+            vec![alice()],
             U128(0),
             U64(0),
             U64(0),
             protocol_address()
         );
-        dao.init(vec![alice()]);
         dao
     }
 
@@ -419,35 +409,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ERR_INIT_CALLED")]
-    fn test_init_twice() {
-        let mut context = get_context(alice());
-        context.attached_deposit = to_yocto(5000);
-        testing_env!(context);
-        let mut contract = FluxDAO::new(
-            String::from("do cool shit"),
-            U128(1_000_000_u128),
-            U64(1000_u64),
-            U64(2000_u64),
-            protocol_address()
-        );
-        contract.init(vec![alice(), bob()]);
-        contract.init(vec![alice(), bob()]);
-    }
-
-    #[test]
     fn test_new() {
         let mut context = get_context(alice());
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
         let mut contract = FluxDAO::new(
             String::from("do cool shit"),
+            vec![alice(), bob()],
             U128(1_000_000_u128),
             U64(1000_u64),
             U64(2000_u64),
             protocol_address()
         );
-        contract.init(vec![alice(), bob()]);
 
         let purpose = String::from("do cool shit");
         let bond_amount:WrappedBalance  = U128(1_000_000_u128);
@@ -790,12 +763,12 @@ mod tests {
         let purpose = String::from("do cool shit");
         let mut contract =  FluxDAO::new(
             String::from("do cool shit"),
+            vec![alice()],
             U128(0),
             U64(100),
             U64(0),
             protocol_address()
         );
-        contract.init(vec![alice()]);
         add_bob(&mut contract);
         let proposal = ProposalInput {
             target: bob(),

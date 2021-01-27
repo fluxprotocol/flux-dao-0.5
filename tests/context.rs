@@ -51,10 +51,11 @@ fn init(
         bytes: &DAO_WASM_BYTES,
         // User deploying the contract,
         signer_account: master_account,
-        //deposit: to_yocto(MINIMAL_NEAR_FOR_COUNCIL),
+        deposit: to_yocto("2000"),
         // init method
         init_method: new(
             purpose,
+            council,
             U128(bond),
             U64(vote_period),
             U64(grace_period),
@@ -81,12 +82,6 @@ fn init(
         .submit();
 
     init_protocol(&token_contract);
-
-    let res = call!(
-        master_account,
-        dao_contract.init(council),
-        deposit = to_yocto("5000")
-    );
     assert!(res.is_ok());
 
     (master_account, dao_contract, alice, bob, carol)
