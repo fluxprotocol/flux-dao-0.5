@@ -205,7 +205,9 @@ impl FluxDAO {
 
         let post_status = proposal.vote_status(&self.policy, self.council.len());
         // If just changed from vote to Delay, adjust the expiration date to grace period.
-        // TODO, this will reset the vote_period_end after every vote
+        // TODO validate this in a test
+        // TODO validate ProposalStatus::Delay
+        // TODO proposal for storage costs / returns
         if !post_status.is_finalized() {
             proposal.vote_period_end = env::block_timestamp() + self.grace_period;
             proposal.status = post_status.clone();
@@ -443,31 +445,31 @@ mod tests {
         assert_eq!(contract.proposals.len(), 0);
     }
 
-    // TODO fix test, should throw panic
-    // #[test]
-    // #[should_panic(expected = "Not enough deposit")]
-    // fn test_add_new_council_proposal_insufficient_deposit() {
-    //     let mut context = get_context(alice());
-    //     context.attached_deposit = to_yocto(2000);
-    //     testing_env!(context);
+    #[test]
+    #[should_panic(expected = "Not enough deposit")]
+    fn test_add_new_council_proposal_insufficient_deposit() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(2000);
+        testing_env!(context);
 
-    //     let mut contract = FluxDAO::new(
-    //         String::from("do cool shit"),
-    //         U128(0),
-    //         U64(0),
-    //         U64(0),
-    //         protocol_address()
-    //     );
-    //     contract.init(vec![alice()]);
-    //     let proposal = ProposalInput {
-    //         target: carol(),
-    //         description: String::from("carol is cool"),
-    //         kind: ProposalKind::NewCouncil,
-    //     };
-    //     let mut context = get_context(alice());
-    //     context.attached_deposit = to_yocto(1);
-    //     contract.add_proposal(proposal);
-    // }
+        let mut contract = FluxDAO::new(
+            String::from("do cool shit"),
+            vec![alice()],
+            U128(0),
+            U64(0),
+            U64(0),
+            protocol_address()
+        );
+        let proposal = ProposalInput {
+            target: carol(),
+            description: String::from("carol is cool"),
+            kind: ProposalKind::NewCouncil,
+        };
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(1);
+        testing_env!(context);
+        contract.add_proposal(proposal);
+    }
 
     #[test]
     #[should_panic(expected = "Description length is too long")]
