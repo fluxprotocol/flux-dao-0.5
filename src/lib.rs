@@ -35,7 +35,6 @@ pub struct FluxDAO {
     purpose: String,
     bond: Balance,
     vote_period: Duration,
-    // TODO remove grace_period?
     grace_period: Duration,
     policy: PolicyItem,
     council: UnorderedSet<AccountId>,
@@ -65,7 +64,6 @@ impl FluxDAO {
         council: Vec<AccountId>,
         bond: WrappedBalance,
         vote_period: WrappedDuration,
-        // TODO remove grace_period?
         grace_period: WrappedDuration,
         protocol_address: String
     ) -> Self {
@@ -126,6 +124,7 @@ impl FluxDAO {
             target: proposal.target,
             description: proposal.description,
             kind: proposal.kind,
+            last_vote: 0,
             vote_period_end: env::block_timestamp() + self.vote_period,
             vote_yes: 0,
             vote_no: 0,
@@ -177,7 +176,7 @@ impl FluxDAO {
         assert_eq!(
             proposal.status,
             ProposalStatus::Vote,
-            "Proposal already finalized"
+            "Proposal not active voting"
         );
         if proposal.vote_period_end < env::block_timestamp() {
             // env::log(b"Voting period expired, finalizing the proposal");
@@ -194,26 +193,25 @@ impl FluxDAO {
         }
         proposal.votes.insert(env::predecessor_account_id(), vote);
         self.last_voted.insert(&env::predecessor_account_id(), &id.into());
-
-        let post_status = proposal.vote_status(&self.policy, self.council.len());
-        // If just changed from vote to Delay, adjust the expiration date to grace period.
-        // TODO validate this in a test
-        // TODO proposal for storage costs / returns
+        proposal.status = proposal.vote_status(&self.policy, self.council.len());
+        proposal.last_vote = env::block_timestamp();
         self.proposals.replace(id.into(), &proposal);
     }
 
     pub fn finalize(&mut self, id: U64) {
         let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
         assert!(
-            !proposal.status.is_finalized(),
+            !proposal.status.is_finished(),
             "Proposal already finalized"
         );
+        assert!(env::block_timestamp() > proposal.last_vote + self.grace_period, "Grace period active");
         proposal.status = proposal.vote_status(&self.policy, self.council.len());
         match proposal.status {
             ProposalStatus::Success => {
                 // env::log(b"Vote succeeded");
                 let target = proposal.target.clone();
                 Promise::new(proposal.proposer.clone()).transfer(self.bond);
+                proposal.status = ProposalStatus::Finalized;
                 match proposal.kind {
                     ProposalKind::NewCouncil => {
                         self.council.insert(&target);
@@ -267,10 +265,10 @@ impl FluxDAO {
                 };
             }
             ProposalStatus::Reject => {
-                // TODO, still need bond?
+                proposal.status = ProposalStatus::Rejected;
                 Promise::new(proposal.proposer.clone()).transfer(self.bond);
             }
-            ProposalStatus::Vote => {
+            _ => {
                 env::panic(b"voting period has not expired and no majority vote yet")
             }
         }
@@ -531,7 +529,7 @@ mod tests {
 
         assert_eq!(proposal.vote_yes, 1);
         assert_eq!(proposal.vote_no, 0);
-        assert_eq!(proposal.status, ProposalStatus::Success);
+        assert_eq!(proposal.status, ProposalStatus::Finalized);
         assert_eq!(proposal.proposer, alice());
         assert_eq!(proposal.target, carol());
         assert_eq!(proposal.description, description);
@@ -773,11 +771,11 @@ mod tests {
 
         assert_eq!(contract.get_bond(), U128(0));
         contract.vote(index, Vote::No);
-        assert_eq!(contract.get_bond(), U128(0));
 
         poll_finalize(&mut contract, index);
         let p:Proposal = contract.get_proposal(index);
-        assert_eq!(p.status, ProposalStatus::Reject);
+        assert_eq!(p.status, ProposalStatus::Rejected);
+        assert_eq!(contract.get_bond(), U128(0));
         // TODO, check balance
     }
 
@@ -813,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Proposal already finalized")]
+    #[should_panic(expected = "Proposal not active voting")]
     fn test_proposal_already_finalized() {
         let mut context = get_context(alice());
         context.attached_deposit = to_yocto(5000);
@@ -857,6 +855,27 @@ mod tests {
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
 
+        let protocol_new : AccountId = "protocol2".to_string();
+        let mut contract = init();
+        assert_eq!(contract.protocol_address, protocol_address());
+        let proposal = ProposalInput {
+            target: bob(),
+            description: String::from("change protocol address"),
+            kind: ProposalKind::ChangeProtocolAddress{ address: protocol_new.clone() }
+        };
+        contract.add_proposal(proposal);
+        contract.vote(U64(0), Vote::Yes);
+        poll_finalize(&mut contract, U64(0));
+        assert_eq!(contract.protocol_address, protocol_new.clone());
+    }
+
+    #[test]
+    #[should_panic(expected = "Grace period active")]
+    fn test_grace_period_active() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+
         let protocol_new : AccountId = "protocol".to_string();
         let mut contract = init();
         assert_eq!(contract.protocol_address, protocol_address());
@@ -867,6 +886,10 @@ mod tests {
         };
         contract.add_proposal(proposal);
         contract.vote(U64(0), Vote::Yes);
-        assert_eq!(contract.protocol_address, protocol_new.clone());
+
+        let mut context = get_context(alice());
+        context.block_timestamp = 5;
+        testing_env!(context);
+        contract.finalize(U64(0));
     }
 }

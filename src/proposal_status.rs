@@ -10,11 +10,15 @@ pub enum ProposalStatus {
     Success,
     /// Proposal was rejected by the vote.
     Reject,
+    /// Proposal is finalized
+    Finalized,
+    /// Proposal is rejected
+    Rejected
 
 }
 
 impl ProposalStatus {
-    pub fn is_finalized(&self) -> bool {
-        self != &ProposalStatus::Vote
+    pub fn is_finished(&self) -> bool {
+        self == &ProposalStatus::Rejected || self == &ProposalStatus::Finalized
     }
 }

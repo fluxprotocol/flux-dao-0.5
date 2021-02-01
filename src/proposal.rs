@@ -41,6 +41,7 @@ pub struct Proposal {
     pub target: AccountId,
     pub description: String,
     pub kind: ProposalKind,
+    pub last_vote: Duration,
     pub vote_period_end: Duration,
     pub vote_yes: u64,
     pub vote_no: u64,
@@ -59,10 +60,10 @@ impl Proposal {
     pub fn vote_status(&self, policy: &PolicyItem, num_council: u64) -> ProposalStatus {
         let needed_votes = policy.num_votes(num_council);
 
-        if env::block_timestamp() < self.vote_period_end {
-            ProposalStatus::Vote
-        } else if self.vote_yes >= needed_votes {
+        if self.vote_yes >= needed_votes {
             ProposalStatus::Success
+        } else if env::block_timestamp() < self.vote_period_end {
+            ProposalStatus::Vote
         } else {
             ProposalStatus::Reject
         }
