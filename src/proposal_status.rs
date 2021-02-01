@@ -10,15 +10,11 @@ pub enum ProposalStatus {
     Success,
     /// Proposal was rejected by the vote.
     Reject,
-    /// Vote for proposal has failed due (not enuough votes).
-    Fail,
-    /// Given voting policy, the uncontested minimum of votes was acquired.
-    /// Delaying the finalization of the proposal to check that there is no contenders (who would vote against).
-    Delay,
+
 }
 
 impl ProposalStatus {
     pub fn is_finalized(&self) -> bool {
-        self != &ProposalStatus::Vote && self != &ProposalStatus::Delay
+        self != &ProposalStatus::Vote
     }
 }

@@ -35,8 +35,9 @@ pub struct FluxDAO {
     purpose: String,
     bond: Balance,
     vote_period: Duration,
+    // TODO remove grace_period?
     grace_period: Duration,
-    policy: Vec<PolicyItem>,
+    policy: PolicyItem,
     council: UnorderedSet<AccountId>,
     proposals: Vector<Proposal>,
     last_voted: UnorderedMap<AccountId, u64>,
@@ -64,6 +65,7 @@ impl FluxDAO {
         council: Vec<AccountId>,
         bond: WrappedBalance,
         vote_period: WrappedDuration,
+        // TODO remove grace_period?
         grace_period: WrappedDuration,
         protocol_address: String
     ) -> Self {
@@ -73,10 +75,10 @@ impl FluxDAO {
             bond: bond.into(),
             vote_period: vote_period.into(),
             grace_period: grace_period.into(),
-            policy: vec![PolicyItem {
+            policy: PolicyItem {
                 max_amount: 0.into(),
                 votes: NumOrRatio::Ratio(1, 2),
-            }],
+            },
             council: UnorderedSet::new(b"c".to_vec()),
             proposals: Vector::new(b"p".to_vec()),
             last_voted: UnorderedMap::new(b"e".to_vec()),
@@ -85,6 +87,7 @@ impl FluxDAO {
         for account_id in council.clone() {
             dao.council.insert(&account_id);
         }
+        // todo remove
         assert!(
             env::account_balance() >= council.len() as u128 * to_yocto(MINIMAL_NEAR_FOR_COUNCIL),
             "ERR_INSUFFICIENT_FUNDS"
@@ -111,19 +114,8 @@ impl FluxDAO {
                 assert!(env::attached_deposit() >= to_yocto(MINIMAL_NEAR_FOR_COUNCIL), "Not enough deposit");
             }
 
-            ProposalKind::ChangePolicy { ref policy } => {
-                assert!(env::attached_deposit() >= self.bond, "Not enough deposit");
-
-                for i in 1..policy.len() {
-                    assert!(
-                        policy[i].max_amount.0 > policy[i - 1].max_amount.0,
-                        "Policy must be sorted, item {} is wrong",
-                        i
-                    );
-                }
-            }
-
             _ => {
+                // TODO, still need bonds?
                 assert!(env::attached_deposit() >= self.bond, "Not enough deposit");
             }
         }
@@ -206,17 +198,8 @@ impl FluxDAO {
         let post_status = proposal.vote_status(&self.policy, self.council.len());
         // If just changed from vote to Delay, adjust the expiration date to grace period.
         // TODO validate this in a test
-        // TODO validate ProposalStatus::Delay
         // TODO proposal for storage costs / returns
-        if !post_status.is_finalized() {
-            proposal.vote_period_end = env::block_timestamp() + self.grace_period;
-            proposal.status = post_status.clone();
-        }
         self.proposals.replace(id.into(), &proposal);
-        // Finalize if this vote is done.
-        if post_status.is_finalized() {
-            self.finalize(id);
-        }
     }
 
     pub fn finalize(&mut self, id: U64) {
@@ -284,14 +267,10 @@ impl FluxDAO {
                 };
             }
             ProposalStatus::Reject => {
-                // env::log(b"Proposal rejected");
-            }
-            ProposalStatus::Fail => {
-                // If no majority vote, let's return the bond.
-                // env::log(b"Proposal vote failed");
+                // TODO, still need bond?
                 Promise::new(proposal.proposer.clone()).transfer(self.bond);
             }
-            ProposalStatus::Vote | ProposalStatus::Delay => {
+            ProposalStatus::Vote => {
                 env::panic(b"voting period has not expired and no majority vote yet")
             }
         }
@@ -371,11 +350,18 @@ mod tests {
             String::from("do cool shit"),
             vec![alice()],
             U128(0),
-            U64(0),
-            U64(0),
+            U64(10),
+            U64(10),
             protocol_address()
         );
         dao
+    }
+
+    fn poll_finalize(contract : &mut FluxDAO, id: U64) {
+        let mut context = get_context(alice());
+        context.block_timestamp = 50000;
+        testing_env!(context);
+        contract.finalize(id);
     }
 
     fn add_bob(contract : &mut FluxDAO) {
@@ -386,9 +372,20 @@ mod tests {
         };
         let index:U64 = contract.add_proposal(proposal);
         contract.vote(index, Vote::Yes);
+
+        let mut context = get_context(alice());
+        context.block_timestamp = 10000;
+        testing_env!(context);
+        contract.finalize(index);
     }
 
     fn add_carol(contract : &mut FluxDAO) {
+        let mut context = get_context(alice());
+        // todo remove
+        context.block_timestamp = 100;
+        context.attached_deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL);
+        testing_env!(context);
+
         let proposal = ProposalInput {
             target: carol(),
             description:  String::from("add carol"),
@@ -397,9 +394,15 @@ mod tests {
         let index:U64 = contract.add_proposal(proposal);
         contract.vote(index, Vote::Yes);
 
+        // todo verify
         let mut context = get_context(bob());
         testing_env!(context);
         contract.vote(index, Vote::Yes);
+
+        let mut context = get_context(alice());
+        context.block_timestamp = 20000;
+        testing_env!(context);
+        contract.finalize(index);
     }
 
     #[test]
@@ -440,7 +443,7 @@ mod tests {
         assert_eq!(contract.bond, bond_amount.into());
         //assert_eq!(contract.vote_period, vote_period.into());
         //assert_eq!(contract.grace_period, grace_period.into());
-        assert_eq!(contract.policy.len(), 1);
+        assert_eq!(contract.policy.max_amount, U128(0));
         assert_eq!(contract.council.len(), 2);
         assert_eq!(contract.proposals.len(), 0);
     }
@@ -522,7 +525,10 @@ mod tests {
 
         assert_eq!(contract.council.len(), 1);
         contract.vote(U64(0), Vote::Yes);
+
+        poll_finalize(&mut contract, U64(0));
         proposal = contract.get_proposal(U64(0));
+
         assert_eq!(proposal.vote_yes, 1);
         assert_eq!(proposal.vote_no, 0);
         assert_eq!(proposal.status, ProposalStatus::Success);
@@ -590,10 +596,16 @@ mod tests {
         contract.vote(index, Vote::Yes);
 
         let mut context = get_context(carol());
-        // TODO, is sending near expected in this case
-        context.attached_deposit = to_yocto(5000);
+
         testing_env!(context);
         contract.vote(index, Vote::Yes);
+        context = get_context(alice());
+        // TODO, is sending near expected in this case
+        // this amount pays out the exit bond
+        context.attached_deposit = to_yocto(5000);
+        context.block_timestamp = 50000;
+        testing_env!(context);
+        contract.finalize(index);
 
         assert_eq!(contract.council.len(), 2);
     }
@@ -604,7 +616,9 @@ mod tests {
         context.attached_deposit = to_yocto(5000);
         testing_env!(context);
         let mut contract = init();
+        assert_eq!(contract.council.len(), 1);
         add_bob(&mut contract);
+        assert_eq!(contract.council.len(), 2);
         add_carol(&mut contract);
         let description = String::from("bob sucks");
         let proposal = ProposalInput {
@@ -616,14 +630,19 @@ mod tests {
         assert_eq!(contract.council.len(), 3);
 
         let mut context = get_context(alice());
-        context.attached_deposit = to_yocto(5000);
         testing_env!(context);
         contract.vote(index, Vote::Yes);
 
         let mut context = get_context(bob());
-        context.attached_deposit = to_yocto(5000);
         testing_env!(context);
         contract.vote(index, Vote::Yes);
+
+        context = get_context(alice());
+        // todo check deposit
+        context.attached_deposit = to_yocto(5000);
+        context.block_timestamp = 50000;
+        testing_env!(context);
+        contract.finalize(index);
 
         assert_eq!(contract.council.len(), 2);
     }
@@ -660,8 +679,10 @@ mod tests {
             kind: ProposalKind::ChangeVotePeriod{ vote_period: U64(1) },
         };
         contract.add_proposal(proposal);
-        assert_eq!(contract.get_vote_period(), U64(0));
+        assert_eq!(contract.get_vote_period(), U64(10));
         contract.vote(U64(0), Vote::Yes);
+
+        poll_finalize(&mut contract, U64(0));
         assert_eq!(contract.get_vote_period(), U64(1));
         // TODO, check balance
     }
@@ -682,6 +703,8 @@ mod tests {
         contract.add_proposal(proposal);
         assert_eq!(contract.get_bond(), U128(0));
         contract.vote(U64(0), Vote::Yes);
+
+        poll_finalize(&mut contract, U64(0));
         assert_eq!(contract.get_bond(), U128(1));
         // TODO, check balance
     }
@@ -694,23 +717,21 @@ mod tests {
 
         let mut contract = init();
         let description = String::from("policy");
-        let policy = vec![PolicyItem {
-            max_amount: 0.into(),
+        let policy = PolicyItem {
+            max_amount: 100.into(),
             votes: NumOrRatio::Ratio(1, 2),
-        },
-        PolicyItem {
-            max_amount: 1.into(),
-            votes: NumOrRatio::Ratio(1, 2),
-        }];
+        };
         let proposal = ProposalInput {
             target: bob(),
             description: description.clone(),
             kind: ProposalKind::ChangePolicy{ policy },
         };
         contract.add_proposal(proposal);
-        assert_eq!(contract.policy.len(), 1);
+        assert_eq!(contract.policy.max_amount, U128(0));
         contract.vote(U64(0), Vote::Yes);
-        assert_eq!(contract.policy.len(), 2);
+
+        poll_finalize(&mut contract, U64(0));
+        assert_eq!(contract.policy.max_amount, U128(100));
     }
 
     #[test]
@@ -730,6 +751,8 @@ mod tests {
         contract.add_proposal(proposal);
         assert_eq!(contract.purpose, purpose);
         contract.vote(U64(0), Vote::Yes);
+
+        poll_finalize(&mut contract, U64(0));
         assert_eq!(contract.purpose, description);
     }
 
@@ -752,65 +775,11 @@ mod tests {
         contract.vote(index, Vote::No);
         assert_eq!(contract.get_bond(), U128(0));
 
+        poll_finalize(&mut contract, index);
         let p:Proposal = contract.get_proposal(index);
         assert_eq!(p.status, ProposalStatus::Reject);
         // TODO, check balance
     }
-
-    #[test]
-    fn test_vote__timestamp_fail() {
-        let mut context = get_context(alice());
-        context.attached_deposit = to_yocto(5000);
-        testing_env!(context);
-
-        let purpose = String::from("do cool shit");
-        let mut contract =  FluxDAO::new(
-            String::from("do cool shit"),
-            vec![alice()],
-            U128(0),
-            U64(100),
-            U64(0),
-            protocol_address()
-        );
-        add_bob(&mut contract);
-        let proposal = ProposalInput {
-            target: bob(),
-            description: String::from("do cooler shit"),
-            kind: ProposalKind::ChangePurpose{ purpose: String::from("do cooler shit") },
-        };
-        let index:U64 = contract.add_proposal(proposal);
-
-        let mut context = get_context(alice());
-        context.block_timestamp = 101;
-        testing_env!(context);
-        contract.finalize(index);
-
-        let p:Proposal = contract.get_proposal(index);
-        assert_eq!(p.status, ProposalStatus::Fail);
-    }
-
-    //TODO
-    // #[test]
-    // fn test_vote_delay() {
-    //     let mut context = get_context(alice());
-    //     context.attached_deposit = to_yocto(5000);
-    //     testing_env!(context);
-
-    //     let mut contract = init();
-    //     let proposal = ProposalInput {
-    //         target: bob(),
-    //         description: String::from("policy"),
-    //         kind: ProposalKind::ChangePolicy{ policy: vec![
-    //             PolicyItem {
-    //                 max_amount: 0.into(),
-    //                 votes: NumOrRatio::Ratio(1, 3),
-    //             }
-    //         ]},
-    //     };
-    //     contract.add_proposal(proposal);
-    //     contract.vote(U64(0), Vote::Yes);
-    //     assert_eq!(1, 2);
-    // }
 
     #[test]
     #[should_panic(expected = "Only council can vote")]
@@ -858,6 +827,8 @@ mod tests {
         };
         contract.add_proposal(proposal);
         contract.vote(U64(0), Vote::Yes);
+
+        poll_finalize(&mut contract, U64(0));
         contract.vote(U64(0), Vote::Yes);
     }
 
