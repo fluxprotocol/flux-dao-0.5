@@ -85,11 +85,6 @@ impl FluxDAO {
         for account_id in council.clone() {
             dao.council.insert(&account_id);
         }
-        // todo remove
-        assert!(
-            env::account_balance() >= council.len() as u128 * to_yocto(MINIMAL_NEAR_FOR_COUNCIL),
-            "ERR_INSUFFICIENT_FUNDS"
-        );
         dao
     }
 
@@ -401,15 +396,6 @@ mod tests {
         context.block_timestamp = 20000;
         testing_env!(context);
         contract.finalize(index);
-    }
-
-    #[test]
-    #[should_panic(expected = "ERR_INSUFFICIENT_FUNDS")]
-    fn test_new_not_enough() {
-        let mut context = get_context(alice());
-        context.attached_deposit = to_yocto(800);
-        testing_env!(context);
-        let mut contract = init();
     }
 
     #[test]
