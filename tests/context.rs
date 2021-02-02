@@ -146,9 +146,8 @@ fn test_new_proposal() {
     );
 
     let proposal = ProposalInput {
-        target: c3.account_id(),
         description: description(),
-        kind: ProposalKind::NewCouncil,
+        kind: ProposalKind::NewCouncil{ target: c3.account_id()},
     };
 
     let res = call!(
@@ -174,7 +173,6 @@ fn test_cross_contract_resolution() {
     );
 
     let proposal = ProposalInput {
-        target: c3.account_id(),
         description: description(),
         kind: ProposalKind::ResoluteMarket{
             market_id: U64(0),
@@ -217,7 +215,6 @@ fn test_cross_contract_set_whitelist() {
     );
 
     let proposal = ProposalInput {
-        target: c3.account_id(),
         description: description(),
         kind: ProposalKind::SetTokenWhitelist{
             whitelist: vec![alice(), bob()]
@@ -259,7 +256,6 @@ fn test_cross_contract_add_to_whitelist() {
     );
 
     let proposal = ProposalInput {
-        target: c3.account_id(),
         description: description(),
         kind: ProposalKind::AddTokenWhitelist{
             to_add: bob()

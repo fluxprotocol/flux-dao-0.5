@@ -103,7 +103,7 @@ impl FluxDAO {
 
         // Input verification.
         match proposal.kind {
-            ProposalKind::NewCouncil => {
+            ProposalKind::NewCouncil { ref target } => {
                 assert!(env::attached_deposit() >= to_yocto(MINIMAL_NEAR_FOR_COUNCIL), "Not enough deposit");
             }
 
@@ -116,7 +116,6 @@ impl FluxDAO {
         let p = Proposal {
             status: ProposalStatus::Vote,
             proposer: env::predecessor_account_id(),
-            target: proposal.target,
             description: proposal.description,
             kind: proposal.kind,
             last_vote: 0,
@@ -204,18 +203,17 @@ impl FluxDAO {
         match proposal.status {
             ProposalStatus::Success => {
                 // env::log(b"Vote succeeded");
-                let target = proposal.target.clone();
                 Promise::new(proposal.proposer.clone()).transfer(self.bond);
                 proposal.status = ProposalStatus::Finalized;
                 match proposal.kind {
-                    ProposalKind::NewCouncil => {
-                        self.council.insert(&target);
+                    ProposalKind::NewCouncil { ref target } => {
+                        self.council.insert(&target.clone());
                     }
-                    ProposalKind::RemoveCouncil => {
-                        self.kick_user(&target);
+                    ProposalKind::RemoveCouncil { ref target } => {
+                        self.kick_user(&target.clone());
                     }
-                    ProposalKind::Payout { amount } => {
-                        Promise::new(target).transfer(amount.0);
+                    ProposalKind::Payout { ref target, amount } => {
+                        Promise::new(target.clone()).transfer(amount.0);
                     }
                     ProposalKind::ChangeVotePeriod { vote_period } => {
                         self.vote_period = vote_period.into();
@@ -280,8 +278,8 @@ impl FluxDAO {
             let proposal = self.proposals.get(proposalid.unwrap()).expect("ERR_PROPOSAL_NOT_FOUND");
 
             match proposal.kind {
-                ProposalKind::RemoveCouncil => {
-                    if &proposal.target != account_id {
+                ProposalKind::RemoveCouncil { target } => {
+                    if &target != account_id {
                         assert!(proposal.status != ProposalStatus::Vote, "ERR_VOTING_ACTIVE");
                     }
                 },
@@ -359,9 +357,8 @@ mod tests {
 
     fn add_bob(contract : &mut FluxDAO) {
         let proposal = ProposalInput {
-            target: bob(),
             description:  String::from("add bob"),
-            kind: ProposalKind::NewCouncil,
+            kind: ProposalKind::NewCouncil { target: bob() },
         };
         let index:U64 = contract.add_proposal(proposal);
         contract.vote(index, Vote::Yes);
@@ -380,9 +377,8 @@ mod tests {
         testing_env!(context);
 
         let proposal = ProposalInput {
-            target: carol(),
             description:  String::from("add carol"),
-            kind: ProposalKind::NewCouncil,
+            kind: ProposalKind::NewCouncil{ target: carol() },
         };
         let index:U64 = contract.add_proposal(proposal);
         contract.vote(index, Vote::Yes);
@@ -448,9 +444,8 @@ mod tests {
             protocol_address()
         );
         let proposal = ProposalInput {
-            target: carol(),
             description: String::from("carol is cool"),
-            kind: ProposalKind::NewCouncil,
+            kind: ProposalKind::NewCouncil{target: carol() },
         };
         let mut context = get_context(alice());
         context.attached_deposit = to_yocto(1);
@@ -467,9 +462,8 @@ mod tests {
 
         let mut contract = init();
         let proposal = ProposalInput {
-            target: carol(),
             description: String::from("a").repeat(281),
-            kind: ProposalKind::NewCouncil,
+            kind: ProposalKind::NewCouncil { target: carol() },
         };
         contract.add_proposal(proposal);
     }
@@ -483,9 +477,8 @@ mod tests {
         let mut contract = init();
         let description = String::from("carol is cool");
         let proposal = ProposalInput {
-            target: carol(),
             description: description.clone(),
-            kind: ProposalKind::NewCouncil,
+            kind: ProposalKind::NewCouncil{ target: carol() },
         };
 
         // Carol (not in council) creates a proposal to include her in the counsil
@@ -496,7 +489,7 @@ mod tests {
         let mut proposal = contract.get_proposal(U64(0));
         assert_eq!(proposal.status, ProposalStatus::Vote);
         assert_eq!(proposal.proposer, alice());
-        assert_eq!(proposal.target, carol());
+        //assert_eq!(proposal.kind.target, carol());
         assert_eq!(proposal.description, description);
         //assert_eq!(proposal.kind, ProposalKind::NewCouncil);
         // TODO, how to get block timestamp of tx
@@ -517,7 +510,7 @@ mod tests {
         assert_eq!(proposal.vote_no, 0);
         assert_eq!(proposal.status, ProposalStatus::Finalized);
         assert_eq!(proposal.proposer, alice());
-        assert_eq!(proposal.target, carol());
+       // assert_eq!(proposal.kind.target, carol());
         assert_eq!(proposal.description, description);
         assert_eq!(contract.council.len(), 2);
     }
@@ -549,9 +542,8 @@ mod tests {
 
         let description = String::from("bob sucks");
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
-            kind: ProposalKind::NewCouncil,
+            kind: ProposalKind::NewCouncil{target: bob() },
         };
         let index:U64 = contract.add_proposal(proposal);
         assert_eq!(index, U64(0));
@@ -567,9 +559,8 @@ mod tests {
         add_carol(&mut contract);
         let description = String::from("bob sucks");
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
-            kind: ProposalKind::RemoveCouncil,
+            kind: ProposalKind::RemoveCouncil{target: bob()},
         };
         let index:U64 = contract.add_proposal(proposal);
 
@@ -606,9 +597,8 @@ mod tests {
         add_carol(&mut contract);
         let description = String::from("bob sucks");
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
-            kind: ProposalKind::RemoveCouncil,
+            kind: ProposalKind::RemoveCouncil{target:bob()},
         };
         let index:U64 = contract.add_proposal(proposal);
         assert_eq!(contract.council.len(), 3);
@@ -640,9 +630,8 @@ mod tests {
         let mut contract = init();
         let description = String::from("bob payout");
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
-            kind: ProposalKind::Payout{ amount: U128(to_yocto(1)) },
+            kind: ProposalKind::Payout{ target: bob(), amount: U128(to_yocto(1)) },
         };
         contract.add_proposal(proposal);
         contract.vote(U64(0), Vote::Yes);
@@ -658,7 +647,6 @@ mod tests {
         let mut contract = init();
         let description = String::from("vote period");
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
             kind: ProposalKind::ChangeVotePeriod{ vote_period: U64(1) },
         };
@@ -680,7 +668,6 @@ mod tests {
         let mut contract = init();
         let description = String::from("bond");
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
             kind: ProposalKind::ChangeBond{ bond: U128(1) },
         };
@@ -706,7 +693,6 @@ mod tests {
             votes: NumOrRatio::Ratio(1, 2),
         };
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
             kind: ProposalKind::ChangePolicy{ policy },
         };
@@ -728,7 +714,6 @@ mod tests {
         let mut contract = init();
         let description = String::from("do cooler shit");
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
             kind: ProposalKind::ChangePurpose{ purpose: description.clone() },
         };
@@ -749,7 +734,6 @@ mod tests {
         let mut contract = init();
         let description = String::from("bond");
         let proposal = ProposalInput {
-            target: bob(),
             description: description.clone(),
             kind: ProposalKind::ChangeBond{ bond: U128(1) },
         };
@@ -774,7 +758,6 @@ mod tests {
 
         let mut contract = init();
         let proposal = ProposalInput {
-            target: bob(),
             description: String::from("x"),
             kind: ProposalKind::ChangePurpose{ purpose:String::from("y") },
         };
@@ -805,7 +788,6 @@ mod tests {
 
         let mut contract = init();
         let proposal = ProposalInput {
-            target: bob(),
             description: String::from("x"),
             kind: ProposalKind::ChangePurpose{ purpose:String::from("y") },
         };
@@ -826,7 +808,6 @@ mod tests {
         let mut contract = init();
         add_bob(&mut contract);
         let proposal = ProposalInput {
-            target: bob(),
             description: String::from("x"),
             kind: ProposalKind::ChangePurpose{ purpose:String::from("y") },
         };
@@ -845,7 +826,6 @@ mod tests {
         let mut contract = init();
         assert_eq!(contract.protocol_address, protocol_address());
         let proposal = ProposalInput {
-            target: bob(),
             description: String::from("change protocol address"),
             kind: ProposalKind::ChangeProtocolAddress{ address: protocol_new.clone() }
         };
@@ -866,7 +846,6 @@ mod tests {
         let mut contract = init();
         assert_eq!(contract.protocol_address, protocol_address());
         let proposal = ProposalInput {
-            target: bob(),
             description: String::from("change protocol address"),
             kind: ProposalKind::ChangeProtocolAddress{ address: protocol_new.clone() }
         };

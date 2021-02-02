@@ -11,7 +11,6 @@ use crate::proposal_status::{ ProposalStatus };
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct ProposalInput {
-    pub target: AccountId,
     pub description: String,
     pub kind: ProposalKind,
 }
@@ -20,9 +19,9 @@ pub struct ProposalInput {
 #[serde(crate = "near_sdk::serde")]
 #[serde(tag = "type")]
 pub enum ProposalKind {
-    NewCouncil,
-    RemoveCouncil,
-    Payout { amount: WrappedBalance },
+    NewCouncil { target: AccountId },
+    RemoveCouncil { target: AccountId },
+    Payout { target: AccountId, amount: WrappedBalance },
     ChangeVotePeriod { vote_period: WrappedDuration },
     ChangeBond { bond: WrappedBalance },
     ChangePolicy { policy: PolicyItem },
@@ -38,7 +37,6 @@ pub enum ProposalKind {
 pub struct Proposal {
     pub status: ProposalStatus,
     pub proposer: AccountId,
-    pub target: AccountId,
     pub description: String,
     pub kind: ProposalKind,
     pub last_vote: Duration,
@@ -50,8 +48,8 @@ pub struct Proposal {
 
 impl Proposal {
     pub fn get_amount(&self) -> Option<Balance> {
-        match self.kind {
-            ProposalKind::Payout { amount } => Some(amount.0),
+        match &self.kind {
+            ProposalKind::Payout { target,  amount } => Some(amount.0),
             _ => None,
         }
     }
