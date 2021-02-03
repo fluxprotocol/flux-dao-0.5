@@ -29,7 +29,8 @@ pub enum ProposalKind {
     ResoluteMarket { market_id: U64, payout_numerator: Option<Vec<U128>> },
     ChangeProtocolAddress { address: String },
     SetTokenWhitelist { whitelist: Vec<AccountId> },
-    AddTokenWhitelist { to_add: AccountId }
+    AddTokenWhitelist { to_add: AccountId },
+    SetGov { new_gov: AccountId }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
