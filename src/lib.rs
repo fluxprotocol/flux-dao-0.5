@@ -54,6 +54,7 @@ pub trait FluxProtocol {
     fn resolute_market(&mut self, market_id: U64, payout_numerator: Option<Vec<U128>>);
     fn set_token_whitelist(&mut self, whitelist: Vec<AccountId>);
     fn add_to_token_whitelist(&mut self, to_add: AccountId);
+    fn set_gov(&mut self, new_gov: AccountId);
 }
 
 #[near_bindgen]
@@ -250,6 +251,14 @@ impl FluxDAO {
                     ProposalKind::AddTokenWhitelist{ ref to_add } => {
                         flux_protocol::add_to_token_whitelist(
                             to_add.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        );
+                    },
+                    ProposalKind::SetGov{ ref new_gov } => {
+                        flux_protocol::set_gov(
+                            new_gov.clone(),
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
