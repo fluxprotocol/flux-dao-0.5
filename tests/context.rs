@@ -22,13 +22,13 @@ use near_sdk_sim::{
 
 extern crate flux_dao;
 use flux_dao::FluxDAOContract;
-use flux_dao::{ProposalInput, ProposalKind, Vote};
+use flux_dao::{ProposalInput, ProposalKind };
 
 const REGISTRY_STORAGE: u128 = 8_300_000_000_000_000_000_000;
 const MINIMAL_NEAR_FOR_COUNCIL: &str = "1000";
 
 near_sdk_sim::lazy_static! {
-    static ref DAO_WASM_BYTES: &'static [u8] = include_bytes!("../res/flux_dao.wasm").as_ref();
+    static ref DAO_WASM_BYTES: &'static [u8] = include_bytes!("../res/flux_dao_always_finalize.wasm").as_ref();
     static ref FLUX_WASM_BYTES: &'static [u8] = include_bytes!("../res/flux_protocol.wasm").as_ref();
 }
 
@@ -186,21 +186,12 @@ fn test_cross_contract_resolution() {
         deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
     ).unwrap_json();
 
-    let vote_res_c1 = call!(
-        c1,
-        dao.vote(proposal_id, Vote::Yes),
-        deposit = 0
-    );
-
-    assert!(vote_res_c1.is_ok());
-
-    let vote_res_c2 = call!(
+    let finalize = call!(
         c2,
-        dao.vote(proposal_id, Vote::Yes),
+        dao.finalize(proposal_id),
         deposit = 0
     );
-    println!("vote {:?}", vote_res_c2);
-    assert!(vote_res_c2.is_ok());
+    assert!(finalize.is_ok());
 }
 
 #[test]
@@ -227,21 +218,12 @@ fn test_cross_contract_set_whitelist() {
         deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
     ).unwrap_json();
 
-    let vote_res_c1 = call!(
-        c1,
-        dao.vote(proposal_id, Vote::Yes),
-        deposit = 0
-    );
-
-    assert!(vote_res_c1.is_ok());
-
-    let vote_res_c2 = call!(
+    let finalize = call!(
         c2,
-        dao.vote(proposal_id, Vote::Yes),
+        dao.finalize(proposal_id),
         deposit = 0
     );
-    println!("vote {:?}", vote_res_c2);
-    assert!(vote_res_c2.is_ok());
+    assert!(finalize.is_ok());
 }
 
 #[test]
@@ -268,19 +250,43 @@ fn test_cross_contract_add_to_whitelist() {
         deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
     ).unwrap_json();
 
-    let vote_res_c1 = call!(
+    let finalize = call!(
         c1,
-        dao.vote(proposal_id, Vote::Yes),
+        dao.finalize(proposal_id),
         deposit = 0
     );
+    assert!(finalize.is_ok());
+}
 
-    assert!(vote_res_c1.is_ok());
 
-    let vote_res_c2 = call!(
+#[test]
+fn test_cross_contract_set_gov() {
+    let (master_account, dao, c1, c2, c3) = init(
+        to_yocto("100000000"),
+        "testing".to_string(),
+        vec![alice(), bob()],
+        to_yocto("1"),
+        0,
+        0
+    );
+
+    let proposal = ProposalInput {
+        description: description(),
+        kind: ProposalKind::SetGov{
+            new_gov: bob()
+        },
+    };
+
+    let proposal_id: U64 = call!(
+        c1,
+        dao.add_proposal(proposal),
+        deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
+    ).unwrap_json();
+
+    let finalize = call!(
         c2,
-        dao.vote(proposal_id, Vote::Yes),
+        dao.finalize(proposal_id),
         deposit = 0
     );
-    println!("vote {:?}", vote_res_c2);
-    assert!(vote_res_c2.is_ok());
+    assert!(finalize.is_ok());
 }

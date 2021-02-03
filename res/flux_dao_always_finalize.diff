@@ -1,0 +1,35 @@
+diff --git a/res/flux_dao.wasm b/res/flux_dao.wasm
+index 800be6a..1ae1704 100755
+Binary files a/res/flux_dao.wasm and b/res/flux_dao.wasm differ
+diff --git a/src/lib.rs b/src/lib.rs
+index 491f94b..230466a 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -199,7 +199,6 @@ impl FluxDAO {
+             !proposal.status.is_finished(),
+             "Proposal already finalized"
+         );
+-        assert!(env::block_timestamp() > proposal.last_vote + self.grace_period, "Grace period active");
+         proposal.status = proposal.vote_status(&self.policy, self.council.len());
+         match proposal.status {
+             ProposalStatus::Success => {
+diff --git a/src/proposal.rs b/src/proposal.rs
+index c172cc4..47edf1c 100644
+--- a/src/proposal.rs
++++ b/src/proposal.rs
+@@ -57,14 +57,6 @@ impl Proposal {
+ 
+     /// Compute new vote status given council size and current timestamp.
+     pub fn vote_status(&self, policy: &PolicyItem, num_council: u64) -> ProposalStatus {
+-        let needed_votes = policy.num_votes(num_council);
+-
+-        if self.vote_yes >= needed_votes {
+-            ProposalStatus::Success
+-        } else if env::block_timestamp() < self.vote_period_end {
+-            ProposalStatus::Vote
+-        } else {
+-            ProposalStatus::Reject
+-        }
++        ProposalStatus::Success
+     }
+ }
