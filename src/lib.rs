@@ -25,7 +25,6 @@ use types::{ Duration, WrappedBalance, WrappedDuration };
 static ALLOC: near_sdk::wee_alloc::WeeAlloc<'_> = near_sdk::wee_alloc::WeeAlloc::INIT;
 
 const MAX_DESCRIPTION_LENGTH: usize = 280;
-const MINIMAL_NEAR_FOR_COUNCIL: u128 = 1000;
 const RESOLUTION_GAS: u64 = 5_000_000_000;
 
 
@@ -92,7 +91,6 @@ impl FluxDAO {
     #[payable]
     pub fn add_proposal(&mut self, proposal: ProposalInput) -> U64 {
         // TODO: add also extra storage cost for the proposal itself.
-        // TODO: transfer `env::attached_deposit() - to_yocto(MINIMAL_NEAR_FOR_COUNCIL)` back to env::predecessor_account
         assert!(
             proposal.description.len() < MAX_DESCRIPTION_LENGTH,
             "Description length is too long"
@@ -101,18 +99,7 @@ impl FluxDAO {
             self.council.contains(&env::predecessor_account_id()),
             "Only council can create proposals"
         );
-
-        // Input verification.
-        match proposal.kind {
-            ProposalKind::NewCouncil { ref target } => {
-                assert!(env::attached_deposit() >= to_yocto(MINIMAL_NEAR_FOR_COUNCIL), "Not enough deposit");
-            }
-
-            _ => {
-                // TODO, still need bonds?
-                assert!(env::attached_deposit() >= self.bond, "Not enough deposit");
-            }
-        }
+        assert!(env::attached_deposit() >= self.bond, "Not enough deposit");
 
         let p = Proposal {
             status: ProposalStatus::Vote,
@@ -298,7 +285,6 @@ impl FluxDAO {
             }
         }
         assert!(self.council.remove(account_id), "ERR_NOT_IN_COUNCIL");
-        Promise::new(account_id.to_string()).transfer(to_yocto(MINIMAL_NEAR_FOR_COUNCIL));
     }
 }
 
@@ -382,7 +368,7 @@ mod tests {
         let mut context = get_context(alice());
         // todo remove
         context.block_timestamp = 100;
-        context.attached_deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL);
+        context.attached_deposit = to_yocto(1000);
         testing_env!(context);
 
         let proposal = ProposalInput {
@@ -447,7 +433,7 @@ mod tests {
         let mut contract = FluxDAO::new(
             String::from("do cool shit"),
             vec![alice()],
-            U128(0),
+            U128(to_yocto(2)),
             U64(0),
             U64(0),
             protocol_address()
