@@ -30,7 +30,9 @@ pub enum ProposalKind {
     ChangeProtocolAddress { address: String },
     SetTokenWhitelist { whitelist: Vec<AccountId> },
     AddTokenWhitelist { to_add: AccountId },
-    SetGov { new_gov: AccountId }
+    SetGov { new_gov: AccountId },
+    PauseProtocol {},
+    UnpauseProtocol {}
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
