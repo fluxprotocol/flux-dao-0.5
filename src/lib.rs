@@ -54,6 +54,8 @@ pub trait FluxProtocol {
     fn set_token_whitelist(&mut self, whitelist: Vec<AccountId>);
     fn add_to_token_whitelist(&mut self, to_add: AccountId);
     fn set_gov(&mut self, new_gov: AccountId);
+    fn pause(&mut self);
+    fn unpause(&mut self);
 }
 
 #[near_bindgen]
@@ -186,7 +188,17 @@ impl FluxDAO {
             !proposal.status.is_finished(),
             "Proposal already finalized"
         );
-        assert!(env::block_timestamp() > proposal.last_vote + self.grace_period, "Grace period active");
+        match proposal.kind {
+            ProposalKind::PauseProtocol{ } => {
+                // no grace period
+            }
+            ProposalKind::UnpauseProtocol{ } => {
+                // no grace period
+            }
+            _ => {
+                assert!(env::block_timestamp() > proposal.last_vote + self.grace_period, "Grace period active");
+            }
+        }
         proposal.status = proposal.vote_status(&self.policy, self.council.len());
         match proposal.status {
             ProposalStatus::Success => {
@@ -246,6 +258,20 @@ impl FluxDAO {
                     ProposalKind::SetGov{ ref new_gov } => {
                         flux_protocol::set_gov(
                             new_gov.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        );
+                    },
+                    ProposalKind::PauseProtocol{ } => {
+                        flux_protocol::pause(
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        );
+                    },
+                    ProposalKind::UnpauseProtocol{ } => {
+                        flux_protocol::unpause(
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
@@ -851,5 +877,39 @@ mod tests {
         context.block_timestamp = 5;
         testing_env!(context);
         contract.finalize(U64(0));
+    }
+
+    #[test]
+    fn test_pause_protocol() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+        let mut contract = init();
+        assert_eq!(contract.protocol_address, protocol_address());
+        let proposal = ProposalInput {
+            description: String::from("pause protocol"),
+            kind: ProposalKind::PauseProtocol{ }
+        };
+        let id = contract.add_proposal(proposal);
+        contract.vote(U64(0), Vote::Yes);
+        // dont chagnge block number after voting (e.g. no grace period)
+        contract.finalize(id);
+    }
+
+    #[test]
+    fn test_unpause_protocol() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+        let mut contract = init();
+        assert_eq!(contract.protocol_address, protocol_address());
+        let proposal = ProposalInput {
+            description: String::from("pause protocol"),
+            kind: ProposalKind::UnpauseProtocol{ }
+        };
+        let id = contract.add_proposal(proposal);
+        contract.vote(U64(0), Vote::Yes);
+        // dont chagnge block number after voting (e.g. no grace period)
+        contract.finalize(id);
     }
 }
