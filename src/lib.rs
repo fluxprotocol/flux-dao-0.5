@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 // use near_lib::types::{Duration, WrappedBalance, WrappedDuration};
-use near_sdk::{ ext_contract, AccountId, Balance, Gas, env, near_bindgen, Promise, PromiseOrValue};
+use near_sdk::{ ext_contract, AccountId, Balance, Gas, env, near_bindgen, Promise, PromiseOrValue, PromiseResult};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{UnorderedSet, Vector, UnorderedMap};
 use near_sdk::json_types::{U64, U128};
@@ -56,6 +56,10 @@ pub trait FluxProtocol {
     fn set_gov(&mut self, new_gov: AccountId);
     fn pause(&mut self);
     fn unpause(&mut self);
+    fn ft_resolve_protocol_call(
+        &mut self,
+        id: U64
+    );
 }
 
 #[near_bindgen]
@@ -182,6 +186,25 @@ impl FluxDAO {
         self.proposals.replace(id.into(), &proposal);
     }
 
+    fn proposal_success(&mut self, proposal: &mut Proposal){
+        Promise::new(proposal.proposer.clone()).transfer(self.bond);
+        proposal.status = ProposalStatus::Finalized;
+    }
+
+    fn ft_resolve_protocol_call(
+        &mut self,
+        id: U64
+    ) {
+        let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
+        match env::promise_result(0) {
+            PromiseResult::NotReady => unreachable!(),
+            PromiseResult::Successful(value) => {
+                self.proposal_success(&mut proposal)
+            }
+            PromiseResult::Failed => {},
+        };
+    }
+
     pub fn finalize(&mut self, id: U64) {
         let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
         assert!(
@@ -203,29 +226,34 @@ impl FluxDAO {
         match proposal.status {
             ProposalStatus::Success => {
                 // env::log(b"Vote succeeded");
-                Promise::new(proposal.proposer.clone()).transfer(self.bond);
-                proposal.status = ProposalStatus::Finalized;
                 match proposal.kind {
                     ProposalKind::NewCouncil { ref target } => {
                         self.council.insert(&target.clone());
+                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::RemoveCouncil { ref target } => {
                         self.kick_user(&target.clone());
+                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::Payout { ref target, amount } => {
                         Promise::new(target.clone()).transfer(amount.0);
+                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ChangeVotePeriod { vote_period } => {
                         self.vote_period = vote_period.into();
+                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ChangeBond { bond } => {
                         self.bond = bond.into();
+                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ChangePolicy{ ref policy } => {
                         self.policy = policy.clone();
+                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ChangePurpose{ ref purpose } => {
                         self.purpose = purpose.clone();
+                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ResoluteMarket{ ref market_id, ref payout_numerator } => {
                         // base gas + gas for each enumerator
@@ -235,7 +263,6 @@ impl FluxDAO {
                                 resolute_gas = resolute_gas.checked_add(
                                     RESOLUTION_GAS.checked_mul(payout.len() as u64).unwrap_or(0)
                                 ).unwrap_or(0);
-
                             }
                             None => {}
                         }
@@ -246,7 +273,12 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             resolute_gas,
-                        );
+                        ).then(flux_protocol::ft_resolve_protocol_call(
+                            id,
+                            &env::current_account_id(),
+                            0,
+                            RESOLUTION_GAS,
+                        ));
                     },
                     ProposalKind::ChangeProtocolAddress{ ref address } => {
                         self.protocol_address = address.to_string();
@@ -257,7 +289,12 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        );
+                        ).then(flux_protocol::ft_resolve_protocol_call(
+                            id,
+                            &env::current_account_id(),
+                            0,
+                            RESOLUTION_GAS,
+                        ));
                     },
                     ProposalKind::AddTokenWhitelist{ ref to_add } => {
                         flux_protocol::add_to_token_whitelist(
@@ -265,7 +302,12 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        );
+                        ).then(flux_protocol::ft_resolve_protocol_call(
+                            id,
+                            &env::current_account_id(),
+                            0,
+                            RESOLUTION_GAS,
+                        ));
                     },
                     ProposalKind::SetGov{ ref new_gov } => {
                         flux_protocol::set_gov(
@@ -273,21 +315,36 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        );
+                        ).then(flux_protocol::ft_resolve_protocol_call(
+                            id,
+                            &env::current_account_id(),
+                            0,
+                            RESOLUTION_GAS,
+                        ));
                     },
                     ProposalKind::PauseProtocol{ } => {
                         flux_protocol::pause(
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        );
+                        ).then(flux_protocol::ft_resolve_protocol_call(
+                            id,
+                            &env::current_account_id(),
+                            0,
+                            RESOLUTION_GAS,
+                        ));
                     },
                     ProposalKind::UnpauseProtocol{ } => {
                         flux_protocol::unpause(
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        );
+                        ).then(flux_protocol::ft_resolve_protocol_call(
+                            id,
+                            &env::current_account_id(),
+                            0,
+                            RESOLUTION_GAS,
+                        ));
                     }
                 };
             }
@@ -301,7 +358,6 @@ impl FluxDAO {
         }
         self.proposals.replace(id.into(), &proposal);
     }
-
     pub fn exit_dao(&mut self) {
         self.kick_user(&env::predecessor_account_id());
     }
