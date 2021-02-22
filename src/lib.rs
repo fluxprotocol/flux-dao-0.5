@@ -263,15 +263,10 @@ impl FluxDAO {
                     }
                     ProposalKind::ResoluteMarket{ ref market_id, ref payout_numerator } => {
                         // base gas + gas for each enumerator
-                        let mut resolute_gas = RESOLUTION_GAS;
-                        match payout_numerator {
-                            Some(payout) => {
-                                resolute_gas = resolute_gas.checked_add(
-                                    RESOLUTION_GAS.checked_mul(payout.len() as u64).unwrap_or(0)
-                                ).unwrap_or(0);
-                            }
-                            None => {}
-                        }
+                        let resolute_gas = match payout_numerator {
+                            Some(payout_vec) => payout_vec.len() as u64 * RESOLUTION_GAS,
+                            None => RESOLUTION_GAS
+                        };
 
                         flux_protocol::resolute_market(
                             *market_id,
