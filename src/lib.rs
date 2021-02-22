@@ -25,7 +25,7 @@ use types::{ Duration, WrappedBalance, WrappedDuration };
 static ALLOC: near_sdk::wee_alloc::WeeAlloc<'_> = near_sdk::wee_alloc::WeeAlloc::INIT;
 
 const MAX_DESCRIPTION_LENGTH: usize = 280;
-const RESOLUTION_GAS: u64 = 5_000_000_000;
+const RESOLUTION_GAS: u64 = 5_000_000_000_000;
 
 
 #[near_bindgen]
