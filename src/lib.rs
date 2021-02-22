@@ -56,6 +56,11 @@ pub trait FluxProtocol {
     fn set_gov(&mut self, new_gov: AccountId);
     fn pause(&mut self);
     fn unpause(&mut self);
+    
+}
+
+#[ext_contract(ext_self)]
+pub trait ResolutionResolver {
     fn ft_resolve_protocol_call(
         &mut self,
         id: U64
@@ -191,10 +196,11 @@ impl FluxDAO {
         proposal.status = ProposalStatus::Finalized;
     }
 
-    fn ft_resolve_protocol_call(
+    pub fn ft_resolve_protocol_call(
         &mut self,
         id: U64
     ) {
+        utils::assert_self();
         let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
         match env::promise_result(0) {
             PromiseResult::NotReady => unreachable!(),
@@ -273,7 +279,7 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             resolute_gas,
-                        ).then(flux_protocol::ft_resolve_protocol_call(
+                        ).then(ext_self::ft_resolve_protocol_call(
                             id,
                             &env::current_account_id(),
                             0,
@@ -289,7 +295,7 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        ).then(flux_protocol::ft_resolve_protocol_call(
+                        ).then(ext_self::ft_resolve_protocol_call(
                             id,
                             &env::current_account_id(),
                             0,
@@ -302,7 +308,7 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        ).then(flux_protocol::ft_resolve_protocol_call(
+                        ).then(ext_self::ft_resolve_protocol_call(
                             id,
                             &env::current_account_id(),
                             0,
@@ -315,7 +321,7 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        ).then(flux_protocol::ft_resolve_protocol_call(
+                        ).then(ext_self::ft_resolve_protocol_call(
                             id,
                             &env::current_account_id(),
                             0,
@@ -327,7 +333,7 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        ).then(flux_protocol::ft_resolve_protocol_call(
+                        ).then(ext_self::ft_resolve_protocol_call(
                             id,
                             &env::current_account_id(),
                             0,
@@ -339,7 +345,7 @@ impl FluxDAO {
                             &self.protocol_address,
                             0,
                             RESOLUTION_GAS,
-                        ).then(flux_protocol::ft_resolve_protocol_call(
+                        ).then(ext_self::ft_resolve_protocol_call(
                             id,
                             &env::current_account_id(),
                             0,
