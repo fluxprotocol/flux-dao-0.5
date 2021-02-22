@@ -244,8 +244,8 @@ impl FluxDAO {
                         self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ChangeBond { bond } => {
-                        self.bond = bond.into();
                         self.proposal_success(&mut proposal);
+                        self.bond = bond.into();
                     }
                     ProposalKind::ChangePolicy{ ref policy } => {
                         self.policy = policy.clone();
