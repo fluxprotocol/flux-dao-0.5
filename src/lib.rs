@@ -228,12 +228,24 @@ impl FluxDAO {
                         self.purpose = purpose.clone();
                     }
                     ProposalKind::ResoluteMarket{ ref market_id, ref payout_numerator } => {
+                        // base gas + gas for each enumerator
+                        let mut resolute_gas = RESOLUTION_GAS;
+                        match payout_numerator {
+                            Some(payout) => {
+                                resolute_gas = resolute_gas.checked_add(
+                                    RESOLUTION_GAS.checked_mul(payout.len() as u64).unwrap_or(0)
+                                ).unwrap_or(0);
+
+                            }
+                            None => {}
+                        }
+
                         flux_protocol::resolute_market(
                             *market_id,
                             payout_numerator.clone(),
                             &self.protocol_address,
                             0,
-                            RESOLUTION_GAS,
+                            resolute_gas,
                         );
                     },
                     ProposalKind::ChangeProtocolAddress{ ref address } => {
