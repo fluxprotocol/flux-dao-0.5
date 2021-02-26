@@ -18,7 +18,7 @@ mod utils;
 
 use policy_item::{ PolicyItem };
 pub use proposal::{ Proposal, ProposalInput, ProposalKind };
-use proposal_status::{ ProposalStatus };
+pub use proposal_status::{ ProposalStatus };
 use types::{ Duration, WrappedBalance, WrappedDuration };
 
 #[global_allocator]
@@ -56,7 +56,7 @@ pub trait FluxProtocol {
     fn set_gov(&mut self, new_gov: AccountId);
     fn pause(&mut self);
     fn unpause(&mut self);
-    
+
 }
 
 #[ext_contract(ext_self)]
@@ -64,7 +64,7 @@ pub trait ResolutionResolver {
     fn ft_resolve_protocol_call(
         &mut self,
         id: U64
-    );
+    ) -> Promise;
 }
 
 #[near_bindgen]
@@ -191,9 +191,15 @@ impl FluxDAO {
         self.proposals.replace(id.into(), &proposal);
     }
 
-    fn proposal_success(&mut self, proposal: &mut Proposal){
-        Promise::new(proposal.proposer.clone()).transfer(self.bond);
+    fn proposal_success(&mut self, id: u64, proposal: &mut Proposal, bond: u128){
+        // TODO, this function can still throw race conditions? Depends on blockchain context
+        // Technically, two threads can enter this function at the same time, 2 bonds will be transferred.
+        // Solution: global lock? lock for proposal id?
+        assert!(proposal.status == ProposalStatus::Success, "Wrong status on callback");
         proposal.status = ProposalStatus::Finalized;
+        self.proposals.replace(id, &proposal);
+
+        Promise::new(proposal.proposer.clone()).transfer(bond);
     }
 
     pub fn ft_resolve_protocol_call(
@@ -205,10 +211,110 @@ impl FluxDAO {
         match env::promise_result(0) {
             PromiseResult::NotReady => unreachable!(),
             PromiseResult::Successful(value) => {
-                self.proposal_success(&mut proposal)
+                self.proposal_success(id.into(), &mut proposal, self.bond)
             }
             PromiseResult::Failed => {},
         };
+    }
+
+    pub fn finalize_external(&mut self, id: U64) -> Promise {
+        let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
+        assert!(
+            !proposal.status.is_finished(),
+            "Proposal already finalized"
+        );
+        match proposal.kind {
+            ProposalKind::PauseProtocol{ } => {
+                // no grace period
+            }
+            ProposalKind::UnpauseProtocol{ } => {
+                // no grace period
+            }
+            _ => {
+                assert!(env::block_timestamp() > proposal.last_vote + self.grace_period, "Grace period active");
+            }
+        }
+        proposal.status = proposal.vote_status(&self.policy, self.council.len());
+        self.proposals.replace(id.into(), &proposal);
+        let prom: Promise = match proposal.status {
+            ProposalStatus::Success => {
+                match proposal.kind {
+                    ProposalKind::ResoluteMarket{ ref market_id, ref payout_numerator } => {
+                        // base gas + gas for each enumerator
+                        let resolute_gas = match payout_numerator {
+                            Some(payout_vec) => payout_vec.len() as u64 * RESOLUTION_GAS,
+                            None => RESOLUTION_GAS
+                        };
+                        flux_protocol::resolute_market(
+                            *market_id,
+                            payout_numerator.clone(),
+                            &self.protocol_address,
+                            0,
+                            resolute_gas,
+                        )
+                    },
+                    ProposalKind::SetTokenWhitelist{ ref whitelist } => {
+                        flux_protocol::set_token_whitelist(
+                            whitelist.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    ProposalKind::AddTokenWhitelist{ ref to_add } => {
+                        flux_protocol::add_to_token_whitelist(
+                            to_add.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    ProposalKind::SetGov{ ref new_gov } => {
+                        flux_protocol::set_gov(
+                            new_gov.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    ProposalKind::PauseProtocol{ } => {
+                        flux_protocol::pause(
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    ProposalKind::UnpauseProtocol{ } => {
+                        flux_protocol::unpause(
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    _ => {
+                        env::panic(b"not an external proposal")
+                    }
+                }
+            }
+            ProposalStatus::Reject => {
+                proposal.status = ProposalStatus::Rejected;
+                Promise::new(proposal.proposer.clone()).transfer(self.bond)
+            }
+            _ => {
+                env::panic(b"voting period has not expired and no majority vote yet")
+            }
+        };
+
+        if proposal.status == ProposalStatus::Success {
+            prom.then(ext_self::ft_resolve_protocol_call(
+                id,
+                &env::current_account_id(),
+                0,
+                RESOLUTION_GAS,
+            ))
+        } else {
+            prom
+        }
     }
 
     pub fn finalize(&mut self, id: U64) {
@@ -229,125 +335,39 @@ impl FluxDAO {
             }
         }
         proposal.status = proposal.vote_status(&self.policy, self.council.len());
+        let actual_bond = self.bond;
         match proposal.status {
             ProposalStatus::Success => {
                 // env::log(b"Vote succeeded");
                 match proposal.kind {
                     ProposalKind::NewCouncil { ref target } => {
                         self.council.insert(&target.clone());
-                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::RemoveCouncil { ref target } => {
                         self.kick_user(&target.clone());
-                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::Payout { ref target, amount } => {
                         Promise::new(target.clone()).transfer(amount.0);
-                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ChangeVotePeriod { vote_period } => {
                         self.vote_period = vote_period.into();
-                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ChangeBond { bond } => {
-                        self.proposal_success(&mut proposal);
                         self.bond = bond.into();
                     }
                     ProposalKind::ChangePolicy{ ref policy } => {
                         self.policy = policy.clone();
-                        self.proposal_success(&mut proposal);
                     }
                     ProposalKind::ChangePurpose{ ref purpose } => {
                         self.purpose = purpose.clone();
-                        self.proposal_success(&mut proposal);
-                    }
-                    ProposalKind::ResoluteMarket{ ref market_id, ref payout_numerator } => {
-                        // base gas + gas for each enumerator
-                        let resolute_gas = match payout_numerator {
-                            Some(payout_vec) => payout_vec.len() as u64 * RESOLUTION_GAS,
-                            None => RESOLUTION_GAS
-                        };
-
-                        flux_protocol::resolute_market(
-                            *market_id,
-                            payout_numerator.clone(),
-                            &self.protocol_address,
-                            0,
-                            resolute_gas,
-                        ).then(ext_self::ft_resolve_protocol_call(
-                            id,
-                            &env::current_account_id(),
-                            0,
-                            RESOLUTION_GAS,
-                        ));
                     },
                     ProposalKind::ChangeProtocolAddress{ ref address } => {
                         self.protocol_address = address.to_string();
                     },
-                    ProposalKind::SetTokenWhitelist{ ref whitelist } => {
-                        flux_protocol::set_token_whitelist(
-                            whitelist.clone(),
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        ).then(ext_self::ft_resolve_protocol_call(
-                            id,
-                            &env::current_account_id(),
-                            0,
-                            RESOLUTION_GAS,
-                        ));
-                    },
-                    ProposalKind::AddTokenWhitelist{ ref to_add } => {
-                        flux_protocol::add_to_token_whitelist(
-                            to_add.clone(),
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        ).then(ext_self::ft_resolve_protocol_call(
-                            id,
-                            &env::current_account_id(),
-                            0,
-                            RESOLUTION_GAS,
-                        ));
-                    },
-                    ProposalKind::SetGov{ ref new_gov } => {
-                        flux_protocol::set_gov(
-                            new_gov.clone(),
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        ).then(ext_self::ft_resolve_protocol_call(
-                            id,
-                            &env::current_account_id(),
-                            0,
-                            RESOLUTION_GAS,
-                        ));
-                    },
-                    ProposalKind::PauseProtocol{ } => {
-                        flux_protocol::pause(
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        ).then(ext_self::ft_resolve_protocol_call(
-                            id,
-                            &env::current_account_id(),
-                            0,
-                            RESOLUTION_GAS,
-                        ));
-                    },
-                    ProposalKind::UnpauseProtocol{ } => {
-                        flux_protocol::unpause(
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        ).then(ext_self::ft_resolve_protocol_call(
-                            id,
-                            &env::current_account_id(),
-                            0,
-                            RESOLUTION_GAS,
-                        ));
+                    _ => {
+                        env::panic(b"not an internal proposal")
                     }
-                };
+                }
             }
             ProposalStatus::Reject => {
                 proposal.status = ProposalStatus::Rejected;
@@ -356,9 +376,14 @@ impl FluxDAO {
             _ => {
                 env::panic(b"voting period has not expired and no majority vote yet")
             }
-        }
+        };
+
         self.proposals.replace(id.into(), &proposal);
+        if proposal.status == ProposalStatus::Success{
+            self.proposal_success(id.into(), &mut proposal, actual_bond);
+        }
     }
+
     pub fn exit_dao(&mut self) {
         self.kick_user(&env::predecessor_account_id());
     }
@@ -962,7 +987,7 @@ mod tests {
         let id = contract.add_proposal(proposal);
         contract.vote(U64(0), Vote::Yes);
         // dont chagnge block number after voting (e.g. no grace period)
-        contract.finalize(id);
+        contract.finalize_external(id);
     }
 
     #[test]
@@ -979,6 +1004,6 @@ mod tests {
         let id = contract.add_proposal(proposal);
         contract.vote(U64(0), Vote::Yes);
         // dont chagnge block number after voting (e.g. no grace period)
-        contract.finalize(id);
+        contract.finalize_external(id);
     }
 }
