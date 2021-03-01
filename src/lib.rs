@@ -171,11 +171,7 @@ impl FluxDAO {
             ProposalStatus::Vote,
             "Proposal not active voting"
         );
-        if proposal.vote_period_end < env::block_timestamp() {
-            // env::log(b"Voting period expired, finalizing the proposal");
-            self.finalize(id);
-            return;
-        }
+        assert!(proposal.vote_period_end > env::block_timestamp(), "voting period ended");
         assert!(
             !proposal.votes.contains_key(&env::predecessor_account_id()),
             "Already voted"
