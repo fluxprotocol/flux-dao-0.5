@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 // use near_lib::types::{Duration, WrappedBalance, WrappedDuration};
-use near_sdk::{ ext_contract, AccountId, Balance, Gas, env, near_bindgen, Promise, PromiseOrValue};
+use near_sdk::{ ext_contract, AccountId, Balance, Gas, env, near_bindgen, Promise, PromiseOrValue, PromiseResult};
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{UnorderedSet, Vector, UnorderedMap};
 use near_sdk::json_types::{U64, U128};
@@ -18,7 +18,7 @@ mod utils;
 
 use policy_item::{ PolicyItem };
 pub use proposal::{ Proposal, ProposalInput, ProposalKind };
-use proposal_status::{ ProposalStatus };
+pub use proposal_status::{ ProposalStatus };
 use types::{ Duration, WrappedBalance, WrappedDuration };
 
 #[global_allocator]
@@ -56,6 +56,15 @@ pub trait FluxProtocol {
     fn set_gov(&mut self, new_gov: AccountId);
     fn pause(&mut self);
     fn unpause(&mut self);
+
+}
+
+#[ext_contract(ext_self)]
+pub trait ResolutionResolver {
+    fn ft_resolve_protocol_call(
+        &mut self,
+        id: U64
+    ) -> Promise;
 }
 
 #[near_bindgen]
@@ -162,11 +171,7 @@ impl FluxDAO {
             ProposalStatus::Vote,
             "Proposal not active voting"
         );
-        if proposal.vote_period_end < env::block_timestamp() {
-            // env::log(b"Voting period expired, finalizing the proposal");
-            self.finalize(id);
-            return;
-        }
+        assert!(proposal.vote_period_end > env::block_timestamp(), "voting period ended");
         assert!(
             !proposal.votes.contains_key(&env::predecessor_account_id()),
             "Already voted"
@@ -180,6 +185,131 @@ impl FluxDAO {
         proposal.status = proposal.vote_status(&self.policy, self.council.len());
         proposal.last_vote = env::block_timestamp();
         self.proposals.replace(id.into(), &proposal);
+    }
+
+    fn proposal_success(&mut self, id: u64, proposal: &mut Proposal, bond: u128){
+        assert!(proposal.status == ProposalStatus::Success, "Wrong status on callback");
+        proposal.status = ProposalStatus::Finalized;
+        self.proposals.replace(id, &proposal);
+
+        if bond > 0 {
+            Promise::new(proposal.proposer.clone()).transfer(bond);
+        }
+    }
+
+    pub fn ft_resolve_protocol_call(
+        &mut self,
+        id: U64
+    ) {
+        utils::assert_self();
+        let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
+        match env::promise_result(0) {
+            PromiseResult::NotReady => unreachable!(),
+            PromiseResult::Successful(value) => {
+                self.proposal_success(id.into(), &mut proposal, self.bond)
+            }
+            PromiseResult::Failed => {},
+        };
+    }
+
+    pub fn finalize_external(&mut self, id: U64) -> Promise {
+        let mut proposal = self.proposals.get(id.into()).expect("No proposal with such id");
+        assert!(
+            !proposal.status.is_finished(),
+            "Proposal already finalized"
+        );
+        match proposal.kind {
+            ProposalKind::PauseProtocol{ } => {
+                // no grace period
+            }
+            ProposalKind::UnpauseProtocol{ } => {
+                // no grace period
+            }
+            _ => {
+                assert!(env::block_timestamp() > proposal.last_vote + self.grace_period, "Grace period active");
+            }
+        }
+        proposal.status = proposal.vote_status(&self.policy, self.council.len());
+        self.proposals.replace(id.into(), &proposal);
+        let prom: Promise = match proposal.status {
+            ProposalStatus::Success => {
+                match proposal.kind {
+                    ProposalKind::ResoluteMarket{ ref market_id, ref payout_numerator } => {
+                        // base gas + gas for each enumerator
+                        let resolute_gas = match payout_numerator {
+                            Some(payout_vec) => payout_vec.len() as u64 * RESOLUTION_GAS,
+                            None => RESOLUTION_GAS
+                        };
+                        flux_protocol::resolute_market(
+                            *market_id,
+                            payout_numerator.clone(),
+                            &self.protocol_address,
+                            0,
+                            resolute_gas,
+                        )
+                    },
+                    ProposalKind::SetTokenWhitelist{ ref whitelist } => {
+                        flux_protocol::set_token_whitelist(
+                            whitelist.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    ProposalKind::AddTokenWhitelist{ ref to_add } => {
+                        flux_protocol::add_to_token_whitelist(
+                            to_add.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    ProposalKind::SetGov{ ref new_gov } => {
+                        flux_protocol::set_gov(
+                            new_gov.clone(),
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    ProposalKind::PauseProtocol{ } => {
+                        flux_protocol::pause(
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    ProposalKind::UnpauseProtocol{ } => {
+                        flux_protocol::unpause(
+                            &self.protocol_address,
+                            0,
+                            RESOLUTION_GAS,
+                        )
+                    },
+                    _ => {
+                        env::panic(b"not an external proposal")
+                    }
+                }
+            }
+            ProposalStatus::Reject => {
+                proposal.status = ProposalStatus::Rejected;
+                Promise::new(proposal.proposer.clone()).transfer(self.bond)
+            }
+            _ => {
+                env::panic(b"voting period has not expired and no majority vote yet")
+            }
+        };
+
+        if proposal.status == ProposalStatus::Success {
+            prom.then(ext_self::ft_resolve_protocol_call(
+                id,
+                &env::current_account_id(),
+                0,
+                RESOLUTION_GAS,
+            ))
+        } else {
+            prom
+        }
     }
 
     pub fn finalize(&mut self, id: U64) {
@@ -200,11 +330,10 @@ impl FluxDAO {
             }
         }
         proposal.status = proposal.vote_status(&self.policy, self.council.len());
+        let actual_bond = self.bond;
         match proposal.status {
             ProposalStatus::Success => {
                 // env::log(b"Vote succeeded");
-                Promise::new(proposal.proposer.clone()).transfer(self.bond);
-                proposal.status = ProposalStatus::Finalized;
                 match proposal.kind {
                     ProposalKind::NewCouncil { ref target } => {
                         self.council.insert(&target.clone());
@@ -226,58 +355,14 @@ impl FluxDAO {
                     }
                     ProposalKind::ChangePurpose{ ref purpose } => {
                         self.purpose = purpose.clone();
-                    }
-                    ProposalKind::ResoluteMarket{ ref market_id, ref payout_numerator } => {
-                        flux_protocol::resolute_market(
-                            *market_id,
-                            payout_numerator.clone(),
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        );
                     },
                     ProposalKind::ChangeProtocolAddress{ ref address } => {
                         self.protocol_address = address.to_string();
                     },
-                    ProposalKind::SetTokenWhitelist{ ref whitelist } => {
-                        flux_protocol::set_token_whitelist(
-                            whitelist.clone(),
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        );
-                    },
-                    ProposalKind::AddTokenWhitelist{ ref to_add } => {
-                        flux_protocol::add_to_token_whitelist(
-                            to_add.clone(),
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        );
-                    },
-                    ProposalKind::SetGov{ ref new_gov } => {
-                        flux_protocol::set_gov(
-                            new_gov.clone(),
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        );
-                    },
-                    ProposalKind::PauseProtocol{ } => {
-                        flux_protocol::pause(
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        );
-                    },
-                    ProposalKind::UnpauseProtocol{ } => {
-                        flux_protocol::unpause(
-                            &self.protocol_address,
-                            0,
-                            RESOLUTION_GAS,
-                        );
+                    _ => {
+                        env::panic(b"not an internal proposal")
                     }
-                };
+                }
             }
             ProposalStatus::Reject => {
                 proposal.status = ProposalStatus::Rejected;
@@ -286,8 +371,12 @@ impl FluxDAO {
             _ => {
                 env::panic(b"voting period has not expired and no majority vote yet")
             }
-        }
+        };
+
         self.proposals.replace(id.into(), &proposal);
+        if proposal.status == ProposalStatus::Success{
+            self.proposal_success(id.into(), &mut proposal, actual_bond);
+        }
     }
 
     pub fn exit_dao(&mut self) {
@@ -893,7 +982,7 @@ mod tests {
         let id = contract.add_proposal(proposal);
         contract.vote(U64(0), Vote::Yes);
         // dont chagnge block number after voting (e.g. no grace period)
-        contract.finalize(id);
+        contract.finalize_external(id);
     }
 
     #[test]
@@ -910,6 +999,6 @@ mod tests {
         let id = contract.add_proposal(proposal);
         contract.vote(U64(0), Vote::Yes);
         // dont chagnge block number after voting (e.g. no grace period)
-        contract.finalize(id);
+        contract.finalize_external(id);
     }
 }

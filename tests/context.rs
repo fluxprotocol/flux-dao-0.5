@@ -21,8 +21,9 @@ use near_sdk_sim::{
 };
 
 extern crate flux_dao;
+
 use flux_dao::FluxDAOContract;
-use flux_dao::{ProposalInput, ProposalKind };
+use flux_dao::{ProposalInput, ProposalKind, Proposal, ProposalStatus, Vote };
 
 const REGISTRY_STORAGE: u128 = 8_300_000_000_000_000_000_000;
 const MINIMAL_NEAR_FOR_COUNCIL: &str = "1000";
@@ -168,8 +169,8 @@ fn test_cross_contract_resolution() {
         "testing".to_string(),
         vec![alice(), bob()],
         to_yocto("1"),
-        12938120938,
-        12837129837
+        0,
+        0
     );
 
     let proposal = ProposalInput {
@@ -187,11 +188,59 @@ fn test_cross_contract_resolution() {
     ).unwrap_json();
 
     let finalize = call!(
-        c2,
-        dao.finalize(proposal_id),
+        c1,
+        dao.finalize_external(proposal_id),
         deposit = 0
     );
     assert!(finalize.is_ok());
+
+    let p: Proposal = call!(
+        c2,
+        dao.get_proposal(proposal_id),
+        deposit = 0
+    ).unwrap_json();
+    assert!(p.status == ProposalStatus::Finalized);
+}
+
+#[test]
+fn test_cross_contract_resolution_underlying_fail() {
+    let (master_account, dao, c1, c2, c3) = init(
+        to_yocto("100000000"),
+        "testing".to_string(),
+        vec![alice(), bob()],
+        to_yocto("1"),
+        0,
+        0
+    );
+
+    // flux_protocol throws an error on market_id = 1
+    let proposal = ProposalInput {
+        description: description(),
+        kind: ProposalKind::ResoluteMarket{
+            market_id: U64(1),
+            payout_numerator: None
+        },
+    };
+
+    let proposal_id: U64 = call!(
+        c1,
+        dao.add_proposal(proposal),
+        deposit = to_yocto(MINIMAL_NEAR_FOR_COUNCIL)
+    ).unwrap_json();
+
+    let finalize = call!(
+        c1,
+        dao.finalize_external(proposal_id),
+        deposit = 0
+    );
+    assert!(finalize.is_ok());
+
+    let p: Proposal = call!(
+        c2,
+        dao.get_proposal(proposal_id),
+        deposit = 0
+    ).unwrap_json();
+    assert!(p.status == ProposalStatus::Success);
 }
 
 #[test]
@@ -220,7 +269,7 @@ fn test_cross_contract_set_whitelist() {
 
     let finalize = call!(
         c2,
-        dao.finalize(proposal_id),
+        dao.finalize_external(proposal_id),
         deposit = 0
     );
     assert!(finalize.is_ok());
@@ -252,7 +301,7 @@ fn test_cross_contract_add_to_whitelist() {
 
     let finalize = call!(
         c1,
-        dao.finalize(proposal_id),
+        dao.finalize_external(proposal_id),
         deposit = 0
     );
     assert!(finalize.is_ok());
@@ -285,7 +334,7 @@ fn test_cross_contract_set_gov() {
 
     let finalize = call!(
         c2,
-        dao.finalize(proposal_id),
+        dao.finalize_external(proposal_id),
         deposit = 0
     );
     assert!(finalize.is_ok());
