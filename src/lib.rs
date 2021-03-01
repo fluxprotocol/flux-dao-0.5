@@ -192,7 +192,9 @@ impl FluxDAO {
         proposal.status = ProposalStatus::Finalized;
         self.proposals.replace(id, &proposal);
 
-        Promise::new(proposal.proposer.clone()).transfer(bond);
+        if bond > 0 {
+            Promise::new(proposal.proposer.clone()).transfer(bond);
+        }
     }
 
     pub fn ft_resolve_protocol_call(
