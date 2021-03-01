@@ -91,7 +91,7 @@ fn init_protocol(
     protocol_contract: &UserAccount,
 ) {
     let tx = protocol_contract.create_transaction(protocol_contract.account_id());
-    let args = json!({}).to_string().as_bytes().to_vec();
+    let args = json!({"gov": "dao".to_string(), "tokens": ["blarp"], "decimals": [18]}).to_string().as_bytes().to_vec();
     let res = tx.function_call("init".into(), args, DEFAULT_GAS, 0).submit();
     if !res.is_ok() {
         panic!("token initiation failed: {:?}", res);
