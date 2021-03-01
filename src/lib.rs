@@ -192,9 +192,6 @@ impl FluxDAO {
     }
 
     fn proposal_success(&mut self, id: u64, proposal: &mut Proposal, bond: u128){
-        // TODO, this function can still throw race conditions? Depends on blockchain context
-        // Technically, two threads can enter this function at the same time, 2 bonds will be transferred.
-        // Solution: global lock? lock for proposal id?
         assert!(proposal.status == ProposalStatus::Success, "Wrong status on callback");
         proposal.status = ProposalStatus::Finalized;
         self.proposals.replace(id, &proposal);
