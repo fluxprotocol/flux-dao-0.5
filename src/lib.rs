@@ -27,6 +27,10 @@ static ALLOC: near_sdk::wee_alloc::WeeAlloc<'_> = near_sdk::wee_alloc::WeeAlloc:
 const MAX_DESCRIPTION_LENGTH: usize = 280;
 const RESOLUTION_GAS: u64 = 5_000_000_000_000;
 
+const RESOLUTE_POLICY : PolicyItem = PolicyItem {
+    max_amount: U128(0),
+    votes: NumOrRatio::Number(4),
+};
 
 #[near_bindgen]
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -160,6 +164,17 @@ impl FluxDAO {
         self.purpose.clone()
     }
 
+    fn update_vote_status(&self, proposal: &mut Proposal) {
+        proposal.status = match proposal.kind {
+            ProposalKind::ResoluteMarket{ ref market_id, ref payout_numerator } => {
+                proposal.vote_status(&RESOLUTE_POLICY, self.council.len())
+            }
+            _ => {
+                proposal.vote_status(&self.policy, self.council.len())
+            }
+        }
+    }
+
     pub fn vote(&mut self, id: U64, vote: Vote) {
         assert!(
             self.council.contains(&env::predecessor_account_id()),
@@ -182,7 +197,7 @@ impl FluxDAO {
         }
         proposal.votes.insert(env::predecessor_account_id(), vote);
         self.last_voted.insert(&env::predecessor_account_id(), &id.into());
-        proposal.status = proposal.vote_status(&self.policy, self.council.len());
+        self.update_vote_status(&mut proposal);
         proposal.last_vote = env::block_timestamp();
         self.proposals.replace(id.into(), &proposal);
     }
@@ -229,7 +244,7 @@ impl FluxDAO {
                 assert!(env::block_timestamp() > proposal.last_vote + self.grace_period, "Grace period active");
             }
         }
-        proposal.status = proposal.vote_status(&self.policy, self.council.len());
+        self.update_vote_status(&mut proposal);
         self.proposals.replace(id.into(), &proposal);
         let prom: Promise = match proposal.status {
             ProposalStatus::Success => {
@@ -293,6 +308,7 @@ impl FluxDAO {
             }
             ProposalStatus::Reject => {
                 proposal.status = ProposalStatus::Rejected;
+                self.proposals.replace(id.into(), &proposal);
                 Promise::new(proposal.proposer.clone()).transfer(self.bond)
             }
             _ => {
@@ -329,7 +345,7 @@ impl FluxDAO {
                 assert!(env::block_timestamp() > proposal.last_vote + self.grace_period, "Grace period active");
             }
         }
-        proposal.status = proposal.vote_status(&self.policy, self.council.len());
+        self.update_vote_status(&mut proposal);
         let actual_bond = self.bond;
         match proposal.status {
             ProposalStatus::Success => {
@@ -420,6 +436,9 @@ mod tests {
     fn carol() -> AccountId {
         "carol.near".to_string()
     }
+    fn dave() -> AccountId {
+        "dave.near".to_string()
+    }
 
     fn protocol_address() -> AccountId {
         "protocol".to_string()
@@ -503,6 +522,36 @@ mod tests {
         testing_env!(context);
         contract.finalize(index);
     }
+
+    fn add_dave(contract : &mut FluxDAO) {
+        let mut context = get_context(alice());
+        // todo remove
+        context.block_timestamp = 100;
+        context.attached_deposit = to_yocto(1000);
+        testing_env!(context);
+
+        let proposal = ProposalInput {
+            description:  String::from("add dave"),
+            kind: ProposalKind::NewCouncil{ target: dave() },
+        };
+        let index:U64 = contract.add_proposal(proposal);
+        contract.vote(index, Vote::Yes);
+
+        // todo verify
+        let mut context = get_context(carol());
+        testing_env!(context);
+        contract.vote(index, Vote::Yes);
+
+        // let mut context = get_context(bob());
+        // testing_env!(context);
+        // contract.vote(index, Vote::Yes);
+
+        let mut context = get_context(alice());
+        context.block_timestamp = 20000;
+        testing_env!(context);
+        contract.finalize(index);
+    }
+
 
     #[test]
     fn test_new() {
@@ -1000,5 +1049,89 @@ mod tests {
         contract.vote(U64(0), Vote::Yes);
         // dont chagnge block number after voting (e.g. no grace period)
         contract.finalize_external(id);
+    }
+
+    #[test]
+    fn test_resolute_policy() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+        let mut contract = init();
+        add_bob(&mut contract);
+        add_carol(&mut contract);
+        add_dave(&mut contract);
+        let proposal = ProposalInput {
+            description: String::from("pause protocol"),
+            kind: ProposalKind::ResoluteMarket{
+                market_id: U64(0),
+                payout_numerator: None
+            }
+        };
+        // vote #1
+        let id = contract.add_proposal(proposal);
+        contract.vote(id, Vote::Yes);
+        // vote #2
+        let mut context = get_context(bob());
+        testing_env!(context);
+        contract.vote(id, Vote::Yes);
+        // vote #3
+        let mut context = get_context(carol());
+        testing_env!(context);
+        contract.vote(id, Vote::Yes);
+        // verify vote
+        let p:Proposal = contract.get_proposal(id);
+        assert_eq!(p.status, ProposalStatus::Vote);
+        // vote #4
+        let mut context = get_context(dave());
+        testing_env!(context);
+        contract.vote(id, Vote::Yes);
+        // finalize
+        let mut context = get_context(alice());
+        context.block_timestamp = 50000;
+        testing_env!(context);
+        contract.finalize_external(id);
+        // verify state
+        let p:Proposal = contract.get_proposal(id);
+        assert_eq!(p.status, ProposalStatus::Success);
+    }
+
+    #[test]
+    fn test_resolute_policy_fail() {
+        let mut context = get_context(alice());
+        context.attached_deposit = to_yocto(5000);
+        testing_env!(context);
+        let mut contract = init();
+        add_bob(&mut contract);
+        add_carol(&mut contract);
+        add_dave(&mut contract);
+        let proposal = ProposalInput {
+            description: String::from("pause protocol"),
+            kind: ProposalKind::ResoluteMarket{
+                market_id: U64(0),
+                payout_numerator: None
+            }
+        };
+        // vote #1
+        let id = contract.add_proposal(proposal);
+        contract.vote(id, Vote::Yes);
+        // vote #2
+        let mut context = get_context(bob());
+        testing_env!(context);
+        contract.vote(id, Vote::Yes);
+        // vote #3
+        let mut context = get_context(carol());
+        testing_env!(context);
+        contract.vote(id, Vote::Yes);
+        // verify vote
+        let p:Proposal = contract.get_proposal(id);
+        assert_eq!(p.status, ProposalStatus::Vote);
+        // finalize
+        let mut context = get_context(alice());
+        context.block_timestamp = 50000;
+        testing_env!(context);
+        contract.finalize_external(id);
+        // verify state
+        let p:Proposal = contract.get_proposal(id);
+        assert_eq!(p.status, ProposalStatus::Rejected);
     }
 }
